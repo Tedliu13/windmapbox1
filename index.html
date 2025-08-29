@@ -67,7 +67,7 @@
   <div class="row">
     <label>最大速度</label>
     <input id="pMax" type="range" min="5" max="70" step="1" value="20">
-    <output id="pMaxV">15</output>
+    <output id="pMaxV">5</output>
   </div>
   <div class="row">
     <label>重置係數</label>
@@ -251,6 +251,7 @@
   $('flyA').addEventListener('click', ()=>{
     runPath([
       {zoom:8.02, bearing:39.82, pitch:41.03, center:[120.961243, 23.095180], duration:5000, curve:1.6},
+      {zoom:8.02, bearing:63.82, pitch:46.53, center:[120.786119, 23.545082], duration:6000, curve:1.6},
       {zoom:9.29, bearing:63.82, pitch:46.53, center:[120.786119, 23.545082], duration:6000, curve:1.6}
     ]);
   });
@@ -259,6 +260,7 @@
   $('flyB').addEventListener('click', ()=>{
     runPath([
       {zoom:8.86, bearing:12.75, pitch:41.57, center:[120.881581, 23.470641], duration:5000, curve:1.6},
+      {zoom:8.86, bearing:12.75, pitch:41.57, center:[121.016258, 23.872712], duration:6000, curve:1.6},
       {zoom:10.13, bearing:12.75, pitch:41.57, center:[121.016258, 23.872712], duration:6000, curve:1.6}
     ]);
   });
