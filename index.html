@@ -246,7 +246,7 @@
     });
   }
   async function runPath(steps){ for (const s of steps) await flyToAsync(s); }
-
+  const easeInOutSine = t => 0.5 - 0.5 * Math.cos(Math.PI * t);
   // A：起點 → (8.02, 39.82, 41.03, 120.961243,23.095180) → (9.29, 63.82, 46.53, 120.786119,23.545082)
   $('flyA').addEventListener('click', ()=>{
     runPath([
