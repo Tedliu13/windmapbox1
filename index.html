@@ -250,20 +250,16 @@
   // A：起點 → (8.02, 39.82, 41.03, 120.961243,23.095180) → (9.29, 63.82, 46.53, 120.786119,23.545082)
   $('flyA').addEventListener('click', ()=>{
     runPath([
-      {zoom:8.02, bearing:39.82, pitch:41.03, center:[120.961243, 23.095180], duration:5000, curve: 0.9},
-      {zoom:8.02, bearing:63.82, pitch:41.03, center:[120.786119, 23.545082], duration:6000, curve: 0.9},
       {zoom:10, bearing:63.82, pitch:46.53, center:[120.786119, 23.545082], duration:6000, curve: 0.9},
-      {zoom:10, bearing:63.82, pitch:0, center:[120.786119, 23.545082], duration:6000, curve: 0.9}
+      {zoom:10, bearing:63.82, pitch:0, center:[120.786119, 23.545082], duration:4000, curve: 0.9}
     ]);
   });
 
   // B：起點 → (8.86, 12.75, 41.57, 120.881581,23.470641) → (10.13, 12.75, 41.57, 121.016258,23.872712)
   $('flyB').addEventListener('click', ()=>{
     runPath([
-      {zoom:8.86, bearing:12.75, pitch:41.57, center:[120.881581, 23.470641], duration:5000, curve:1.6},
-      {zoom:8.86, bearing:8, pitch:36.5, center:[121.126753, 24.151556], duration:6000, curve:1.6},
       {zoom:10, bearing:8, pitch:36.5, center:[121.126753, 24.151556], duration:6000, curve:1.6},
-      {zoom:10, bearing:8, pitch:0, center:[121.126753, 24.151556], duration:6000, curve:1.6}
+      {zoom:10, bearing:8, pitch:0, center:[121.126753, 24.151556], duration:4000, curve:1.6}
     ]);
   });
 
