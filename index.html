@@ -250,10 +250,10 @@
   // A：起點 → (8.02, 39.82, 41.03, 120.961243,23.095180) → (9.29, 63.82, 46.53, 120.786119,23.545082)
   $('flyA').addEventListener('click', ()=>{
     runPath([
-      {zoom:8.02, bearing:39.82, pitch:41.03, center:[120.961243, 23.095180], duration:5000, curve:1.6},
-      {zoom:8.02, bearing:63.82, pitch:41.03, center:[120.786119, 23.545082], duration:6000, curve:1.6},
-      {zoom:10, bearing:63.82, pitch:46.53, center:[120.786119, 23.545082], duration:6000, curve:1.6},
-      {zoom:10, bearing:63.82, pitch:0, center:[120.786119, 23.545082], duration:6000, curve:1.6}
+      {zoom:8.02, bearing:39.82, pitch:41.03, center:[120.961243, 23.095180], duration:5000, curve: 0.9, easing: easeInOutSine},
+      {zoom:8.02, bearing:63.82, pitch:41.03, center:[120.786119, 23.545082], duration:6000, curve: 0.9, easing: easeInOutSine},
+      {zoom:10, bearing:63.82, pitch:46.53, center:[120.786119, 23.545082], duration:6000, curve: 0.9, easing: easeInOutSine},
+      {zoom:10, bearing:63.82, pitch:0, center:[120.786119, 23.545082], duration:6000, curve: 0.9, easing: easeInOutSine}
     ]);
   });
 
