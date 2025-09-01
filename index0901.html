@@ -30,14 +30,6 @@
     .flybar button{border:none;border-radius:12px;padding:10px 12px;background:#2563eb;color:#fff;cursor:pointer;
       box-shadow:0 6px 16px rgba(0,0,0,.2)}
     .flybar button:hover{background:#1e40af}
-    /* 右側地形 legend（預設隱藏） */
-    .legend {
-      position: absolute; right: 12px; top: 12px; z-index: 12;
-      background: rgba(255,255,255,.96); padding: 6px; border-radius: 10px;
-      box-shadow: 0 8px 20px rgba(0,0,0,.15);
-    }
-    .legend img { display:block; height: 360px; }
-
   </style>
 </head>
 <body>
@@ -96,25 +88,12 @@
       <option value="fire">Dark → Orange → Yellow → White</option>
     </select>
   </div>
-  <div class="title" style="margin-top:6px">模式地形</div>
-    <div class="inline">
-      <label><input id="chkTerrain" type="checkbox"> 顯示模式地形</label>
-    </div>
-    <div class="row">
-      <label>透明度</label>
-      <input id="terrainOpacity" type="range" min="0" max="1" step="0.01" value="0.80">
-      <output id="terrainOpacityV">0.80</output>
-    </div>
-
 </div>
 
 <!-- 右下：飛行視角 -->
 <div class="flybar">
   <button id="flyA">飛行視角 A</button>
   <button id="flyB">飛行視角 B</button>
-</div>
-<div id="terrainLegend" class="legend" style="display:none;">
-  <img src="terrain_legend.png" alt="Terrain legend">
 </div>
 
 <div id="status" class="status">初始化中…</div>
@@ -224,13 +203,10 @@
     });
   }
 
-  map.on('style.load', async ()=>{
+  map.on('style.load', ()=>{
     enableTerrainIfAny();
-    addAllWindLayers();       // 先加風場
-    await addTerrainOverlay(); // 再加地形疊圖（插到風場之前）
-    bindTerrainUI();          // 綁定面板開關與透明度
+    addAllWindLayers();
   });
-
 
   // === UI 綁定 ===
   const bind = (id, prop, toFixed=2) => {
@@ -291,60 +267,6 @@
   map.on('error', e=>{
     if (e?.error?.status) say(`來源錯誤：${e.error.status} ${e.error.statusText||''}\n${e.error.url||''}`);
   });
-
-  // === 模式地形：讀 bounds → 新增 image source + raster layer（預設不顯示） ===
-  async function addTerrainOverlay() {
-    // 讀入四角座標（來源是 [lat, lon]，需轉成 [lng, lat]）
-    const b = await fetch('terrain_bounds.json').then(r => r.json());
-    const sw = ([lat, lon]) => [lon, lat];
-    const coords = [ sw(b.topleft), sw(b.topright), sw(b.bottomright), sw(b.bottomleft) ];
-
-    if (!map.getSource('terrain-img')) {
-      map.addSource('terrain-img', {
-        type: 'image',
-        url: 'terrain_land_only.png',
-        coordinates: coords
-      });
-    }
-
-    // 放在風場之下：若 wind_JJA_day 已存在，就插到它之前
-    const beforeId = map.getLayer('wind_JJA_day') ? 'wind_JJA_day' : undefined;
-    if (!map.getLayer('terrain-layer')) {
-      map.addLayer({
-        id: 'terrain-layer',
-        type: 'raster',
-        source: 'terrain-img',
-        layout: { visibility: 'none' }, // 預設不顯示
-        paint: { 'raster-opacity': parseFloat($('terrainOpacity').value) }
-      }, beforeId);
-    }
-  }
-
-  // 開關/透明度控制
-  function bindTerrainUI() {
-    const chk = $('chkTerrain');
-    const op  = $('terrainOpacity');
-    const opV = $('terrainOpacityV');
-    const legend = $('terrainLegend');
-
-    const applyOpacity = () => {
-      opV.textContent = (+op.value).toFixed(2);
-      if (map.getLayer('terrain-layer')) {
-        map.setPaintProperty('terrain-layer', 'raster-opacity', +op.value);
-      }
-    };
-    op.addEventListener('input', applyOpacity);
-    applyOpacity(); // 初始化數值顯示
-
-    chk.addEventListener('change', () => {
-      const vis = chk.checked ? 'visible' : 'none';
-      if (map.getLayer('terrain-layer')) {
-        map.setLayoutProperty('terrain-layer', 'visibility', vis);
-      }
-      legend.style.display = chk.checked ? 'block' : 'none';
-    });
-  }
-
 </script>
 </body>
 </html>
