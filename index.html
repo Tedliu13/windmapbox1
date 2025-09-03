@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
-  <title>風場粒子參數面板</title>
+  <title>TReAD風場粒子動畫</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.14.0/mapbox-gl.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.14.0/mapbox-gl.js"></script>
@@ -102,7 +102,7 @@
     <select id="pPalette">
       <option value="white" selected>White</option>
       <option value="blue">Blue → Cyan → White</option>
-      <option value="teal">黑0→橘0.2→藍綠0.4→綠0.6→橘→紅紫(自訂)</option>
+      <option value="teal">黑→橘→藍綠→天空藍→琥珀→紅紫(自訂)</option>
       <option value="fire">Dark → Orange → Yellow → White</option>
     </select>
   </div>
@@ -156,13 +156,13 @@
   const BAND_NAME    = 'wind';
 
   // === 自訂 TEAL 色帶（用最大風速的比例 0~1 標註停點） ===
-  // 你的說明：黑0 → 橘0.2 → 藍綠0.4 → 綠0.6 → 橘0.8 → 紅紫1.0
+  // 你的說明：黑→橘→藍綠→天空藍→琥珀→紅紫
   const TEAL_CUSTOM_FRAC_STOPS = [
     [0.00, '#000000'], // 黑
     [0.20, '#C46A14'], // 橘
     [0.40, '#0FA3AD'], // 藍綠
-    [0.60, '#39A339'], // 綠
-    [0.80, '#C2863E'], // 橘系
+    [0.60, '#56B4E9'], // 天空藍
+    [0.80, '#FFB000'], // 琥珀
     [1.00, '#AF5088']  // 紅紫
   ];
 
@@ -380,10 +380,11 @@
     ctx.fillStyle = grad;
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    // 刻度（0, 25%, 50%, 75%, 100%）
-    const ticks = [0, .25, .5, .75, 1].map(p=>Math.round(p*max));
-    document.getElementById('windTicks').innerHTML = ticks.map(v=>`<span>${v}</span>`).join('');
-  }
+    // 刻度（0%、25%、50%、75%、100%）→ 一位小數
+    const ticks = [0, .25, .5, .75, 1].map(p => (p * max).toFixed(1));
+    document.getElementById('windTicks').innerHTML =
+      ticks.map(v => `<span>${v}</span>`).join('');
+
 
 
   // === 模式地形：讀 bounds → 新增 image source + raster layer（預設不顯示） ===
