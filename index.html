@@ -92,7 +92,7 @@
     <select id="pPalette">
       <option value="white" selected>White</option>
       <option value="blue">Blue → Cyan → White</option>
-      <option value="teal">Teal → Green → Orange → Magenta（官方風格）</option>
+      <option value="teal">黑→橘→藍綠→綠→橘→紅紫(自訂)</option>
       <option value="fire">Dark → Orange → Yellow → White</option>
     </select>
   </div>
@@ -165,8 +165,8 @@
           0,'rgba(0,0,30,0.2)', 3,'rgba(0,70,160,0.6)', 7,'rgba(0,200,255,0.9)', 12,'rgba(255,255,255,1)'];
       case 'teal':
         return ['interpolate',['linear'],speed,
-          1.5,'rgba(134,163,171,1)', 4.1,'rgba(110,143,208,1)', 7.7,'rgba(15,147,167,1)',
-          10.3,'rgba(57,163,57,1)', 13.4,'rgba(194,134,62,1)', 16.5,'rgba(200,66,13,1)', 21.6,'rgba(175,80,136,1)', 29.3,'rgba(68,105,141,1)'];
+          0,'rgba(0,0,0,0.25)', 0.2,'rgba(120,60,0,0.7)', 0.4,'rgba(134,163,171,1)', 0.6,'rgba(110,143,208,1)', 0.8,'rgba(15,147,167,1)',
+          1,'rgba(57,163,57,1)', 2,'rgba(194,134,62,1)', 3,'rgba(200,66,13,1)', 4,'rgba(175,80,136,1)', 5,'rgba(68,105,141,1)'];
       case 'fire':
         return ['interpolate',['linear'],speed,
           0,'rgba(0,0,0,0.25)', 3,'rgba(120,60,0,0.7)', 7,'rgba(220,120,0,0.9)', 12,'rgba(255,255,220,1)'];
