@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
-  <title>TReAD風場粒子動畫</title>
+  <title>TReAD夏季冬季日夜風場</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.14.0/mapbox-gl.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.14.0/mapbox-gl.js"></script>
@@ -384,7 +384,7 @@
     const ticks = [0, .25, .5, .75, 1].map(p => (p * max).toFixed(1));
     document.getElementById('windTicks').innerHTML =
       ticks.map(v => `<span>${v}</span>`).join('');
-
+  }
 
 
   // === 模式地形：讀 bounds → 新增 image source + raster layer（預設不顯示） ===
