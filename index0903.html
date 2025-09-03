@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <title>風場粒子參數面板</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.14.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.14.0/mapbox-gl.js"></script>
+  <style>
+    html,body,#map{height:100%;margin:0}
+    /* 設定面板（預設隱藏） */
+    .panel{position:absolute;top:58px;left:12px;z-index:10;background:rgba(255,255,255,.96);
+      padding:12px 14px;border-radius:14px;box-shadow:0 10px 28px rgba(0,0,0,.18);
+      font:14px/1.5 system-ui,"Noto Sans TC"; display:none; max-width:400px}
+    .row{display:grid;grid-template-columns:110px 1fr 56px;gap:10px;align-items:center;margin:6px 0}
+    .row label{white-space:nowrap}
+    .row select{grid-column:2/span 2}
+    .title{font-weight:700;margin-bottom:4px}
+    .inline{display:flex;gap:10px;margin-bottom:6px}
+    .status{position:absolute;bottom:10px;left:12px;background:rgba(0,0,0,.7);color:#fff;
+      padding:6px 10px;border-radius:8px;font-size:12px}
+
+    /* 左上：設定按鈕 */
+    .settings-btn{position:absolute;top:12px;left:12px;z-index:11;border:none;border-radius:12px;
+      padding:8px 12px;background:#1f2937;color:#fff;cursor:pointer;box-shadow:0 6px 16px rgba(0,0,0,.2)}
+    .settings-btn:hover{background:#111827}
+
+    /* 右下：飛行視角 */
+    .flybar{position:absolute;right:12px;bottom:12px;z-index:10;display:flex;gap:8px}
+    .flybar button{border:none;border-radius:12px;padding:10px 12px;background:#2563eb;color:#fff;cursor:pointer;
+      box-shadow:0 6px 16px rgba(0,0,0,.2)}
+    .flybar button:hover{background:#1e40af}
+    /* 右側地形 legend（預設隱藏） */
+    .legend {
+      position: absolute; right: 12px; top: 12px; z-index: 12;
+      background: rgba(255,255,255,.96); padding: 6px; border-radius: 10px;
+      box-shadow: 0 8px 20px rgba(0,0,0,.15);
+    }
+    .legend img { display:block; height: 360px; }
+
+  </style>
+</head>
+<body>
+<div id="map"></div>
+
+<!-- 左上：設定按鈕 -->
+<button id="toggleSettings" class="settings-btn" aria-expanded="false">⚙️ 設定</button>
+
+<!-- 設定面板（點上面的按鈕才展開） -->
+<div id="panel" class="panel" aria-hidden="true">
+  <div class="title">風場切換</div>
+  <div class="inline">
+    <label><input type="radio" name="season" value="DJF"> 冬季 (DJF)</label>
+    <label><input type="radio" name="season" value="JJA" checked> 夏季 (JJA)</label>
+    <label><input type="radio" name="tod" value="day" checked> 白天</label>
+    <label><input type="radio" name="tod" value="night"> 夜晚</label>
+  </div>
+
+  <div class="title" style="margin-top:6px">粒子參數</div>
+  <div class="row">
+    <label>粒子數</label>
+    <input id="pCount" type="range" min="1000" max="50000" step="1000" value="3000">
+    <output id="pCountV">3000</output>
+  </div>
+  <div class="row">
+    <label>速度係數</label>
+    <input id="pSpeed" type="range" min="0" max="1" step="0.01" value="0.6">
+    <output id="pSpeedV">0.6</output>
+  </div>
+  <div class="row">
+    <label>尾跡係數</label>
+    <input id="pFade" type="range" min="0.80" max="0.995" step="0.005" value="0.90">
+    <output id="pFadeV">0.90</output>
+  </div>
+  <div class="row">
+    <label>最大速度</label>
+    <input id="pMax" type="range" min="1" max="20" step="1" value="5">
+    <output id="pMaxV">5</output>
+  </div>
+  <div class="row">
+    <label>重置係數</label>
+    <input id="pReset" type="range" min="0" max="1" step="0.05" value="0.40">
+    <output id="pResetV">0.40</output>
+  </div>
+  <div class="row">
+    <label>離地高度(m)</label>
+    <input id="pElev" type="range" min="0" max="3000" step="50" value="0">
+    <output id="pElevV">0</output>
+  </div>
+  <div class="row">
+    <label>色帶</label>
+    <select id="pPalette">
+      <option value="white" selected>White</option>
+      <option value="blue">Blue → Cyan → White</option>
+      <option value="teal">Teal → Green → Orange → Magenta（官方風格）</option>
+      <option value="fire">Dark → Orange → Yellow → White</option>
+    </select>
+  </div>
+  <div class="title" style="margin-top:6px">模式地形</div>
+    <div class="inline">
+      <label><input id="chkTerrain" type="checkbox"> 顯示模式地形</label>
+    </div>
+    <div class="row">
+      <label>透明度</label>
+      <input id="terrainOpacity" type="range" min="0" max="1" step="0.01" value="0.80">
+      <output id="terrainOpacityV">0.80</output>
+    </div>
+
+</div>
+
+<!-- 右下：飛行視角 -->
+<div class="flybar">
+  <button id="flyA">飛行視角 A</button>
+  <button id="flyB">飛行視角 B</button>
+</div>
+<div id="terrainLegend" class="legend" style="display:none;">
+  <img src="terrain_legend.png" alt="Terrain legend">
+</div>
+
+<div id="status" class="status">初始化中…</div>
+
+<script>
+  // 1) 公開 token
+  mapboxgl.accessToken = 'pk.eyJ1IjoidGVkbGl1IiwiYSI6ImNtMHAxMjdveDAwZWUya29sanY1c3Btc2EifQ.dGpYV4RZ4-OcpITjSKfcfg';
+
+  // 2) 你的 3D 地形樣式
+  const STYLE_URL = 'mapbox://styles/tedliu/cm0qicaza00mf01pwfsfj3qgx';
+
+  // 3) 四個 tileset
+  const TILESETS = {
+    DJF_day:   'mapbox://tedliu.tw_wind_djf_day',
+    DJF_night: 'mapbox://tedliu.tw_wind_djf_night',
+    JJA_day:   'mapbox://tedliu.tw_wind_jja_day',
+    JJA_night: 'mapbox://tedliu.tw_wind_jja_night'
+  };
+  const SOURCE_LAYER = 'twinds';
+  const BAND_NAME    = 'wind';
+
+  // 起始視角
+  const map = new mapboxgl.Map({
+    container:'map', style:STYLE_URL,
+    center:[121,23.6], zoom:8.5, pitch:60, bearing:-10, antialias:true
+  });
+
+  const $ = id => document.getElementById(id);
+  const say = t => { $('status').textContent = t; console.log(t); };
+
+  // 啟用地形
+  function enableTerrainIfAny(){
+    const st = map.getStyle();
+    if (st.terrain && !map.getSource(st.terrain.source)) map.setTerrain(null);
+    const dem = Object.entries(st.sources).find(([,s])=>s.type==='raster-dem');
+    if (dem) {
+      map.setTerrain({ source: dem[0], exaggeration: 4 }); 
+      if (!map.getLayer('sky')) map.addLayer({ id:'sky', type:'sky', paint:{ 'sky-type':'atmosphere' }});
+    }
+  }
+
+  // 色帶
+  function paletteExpr(kind){
+    const speed = ['raster-particle-speed'];
+    switch(kind){
+      case 'blue':
+        return ['interpolate',['linear'],speed,
+          0,'rgba(0,0,30,0.2)', 3,'rgba(0,70,160,0.6)', 7,'rgba(0,200,255,0.9)', 12,'rgba(255,255,255,1)'];
+      case 'teal':
+        return ['interpolate',['linear'],speed,
+          1.5,'rgba(134,163,171,1)', 4.1,'rgba(110,143,208,1)', 7.7,'rgba(15,147,167,1)',
+          10.3,'rgba(57,163,57,1)', 13.4,'rgba(194,134,62,1)', 16.5,'rgba(200,66,13,1)', 21.6,'rgba(175,80,136,1)', 29.3,'rgba(68,105,141,1)'];
+      case 'fire':
+        return ['interpolate',['linear'],speed,
+          0,'rgba(0,0,0,0.25)', 3,'rgba(120,60,0,0.7)', 7,'rgba(220,120,0,0.9)', 12,'rgba(255,255,220,1)'];
+      default:
+        return ['interpolate',['linear'],speed,
+          0,'rgba(255,255,255,0.25)', 5,'rgba(255,255,255,0.7)', 12,'rgba(255,255,255,1)'];
+    }
+  }
+
+  // 加載四個風場圖層
+  function addAllWindLayers(){
+    Object.entries(TILESETS).forEach(([key,url])=>{
+      if (!url) return;
+      const srcId = 'src_'+key, lyrId = 'wind_'+key;
+      if (!map.getSource(srcId)) map.addSource(srcId, { type:'raster-array', url, tileSize:1024 });
+      if (!map.getLayer(lyrId)) {
+        map.addLayer({
+          id:lyrId, type:'raster-particle', source:srcId, 'source-layer':SOURCE_LAYER,
+          layout:{ visibility: key==='JJA_day' ? 'visible' : 'none' },
+          paint:{
+            'raster-particle-array-band': BAND_NAME,
+            'raster-particle-count': +$('pCount').value,
+            'raster-particle-speed-factor': parseFloat($('pSpeed').value),
+            'raster-particle-fade-opacity-factor': parseFloat($('pFade').value),
+            'raster-particle-max-speed': +$('pMax').value,
+            'raster-particle-reset-rate-factor': parseFloat($('pReset').value),
+            'raster-particle-elevation': +$('pElev').value,
+            'raster-particle-color': paletteExpr($('pPalette').value)
+          }
+        });
+      }
+    });
+    say('顯示：JJA_day');
+  }
+
+  // 切換可見層
+  function currentKey(){
+    const s=document.querySelector('input[name="season"]:checked').value;
+    const t=document.querySelector('input[name="tod"]:checked').value;
+    return `${s}_${t}`;
+  }
+  function showOnly(key){
+    Object.keys(TILESETS).forEach(k=>{
+      if (!TILESETS[k]) return;
+      const lyrId = 'wind_'+k;
+      if (map.getLayer(lyrId)) map.setLayoutProperty(lyrId,'visibility', k===key?'visible':'none');
+    });
+    say('顯示：'+key);
+  }
+  function setPaint(prop,val){
+    Object.keys(TILESETS).forEach(k=>{
+      if (!TILESETS[k]) return;
+      const lyrId = 'wind_'+k;
+      if (map.getLayer(lyrId)) map.setPaintProperty(lyrId, prop, val);
+    });
+  }
+
+  map.on('style.load', async ()=>{
+    enableTerrainIfAny();
+    addAllWindLayers();       // 先加風場
+    await addTerrainOverlay(); // 再加地形疊圖（插到風場之前）
+    bindTerrainUI();          // 綁定面板開關與透明度
+  });
+
+
+  // === UI 綁定 ===
+  const bind = (id, prop, toFixed=2) => {
+    const el=$(id), out=$(id+'V');
+    const update=()=>{ out.textContent=(prop==='raster-particle-count'||prop==='raster-particle-max-speed'||prop==='raster-particle-elevation')? +el.value : (+el.value).toFixed(toFixed); setPaint(prop, +el.value); };
+    el.addEventListener('input', update); update();
+  };
+  bind('pCount','raster-particle-count',0);
+  bind('pSpeed','raster-particle-speed-factor',2);
+  bind('pFade','raster-particle-fade-opacity-factor',3);
+  bind('pMax','raster-particle-max-speed',0);
+  bind('pReset','raster-particle-reset-rate-factor',2);
+  bind('pElev','raster-particle-elevation',0);
+  $('pPalette').addEventListener('change', ()=>setPaint('raster-particle-color', paletteExpr($('pPalette').value)));
+  document.querySelectorAll('input[name="season"],input[name="tod"]').forEach(el=>{
+    el.addEventListener('change', ()=>showOnly(currentKey()));
+  });
+
+  // 左上設定按鈕：顯示/隱藏面板
+  const panel = $('panel'), toggleBtn = $('toggleSettings');
+  toggleBtn.addEventListener('click', ()=>{
+    const open = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : 'block';
+    toggleBtn.setAttribute('aria-expanded', String(!open));
+    panel.setAttribute('aria-hidden', String(open));
+    toggleBtn.textContent = open ? '⚙️ 設定' : '✖ 關閉設定';
+  });
+  // 預設隱藏
+  panel.style.display = 'none';
+
+  // ---- 飛行視角 ----
+  function flyToAsync(opts){
+    return new Promise(res=>{
+      const h=()=>{ map.off('moveend',h); res(); };
+      map.on('moveend', h);
+      map.flyTo({...opts, essential:true});
+    });
+  }
+  async function runPath(steps){ for (const s of steps) await flyToAsync(s); }
+
+  // A：起點 → (8.02, 39.82, 41.03, 120.961243,23.095180) → (9.29, 63.82, 46.53, 120.786119,23.545082)
+  $('flyA').addEventListener('click', ()=>{
+    runPath([
+      {zoom:10, bearing:63.82, pitch:46.53, center:[120.786119, 23.545082], duration:6000, curve: 0.9},
+      {zoom:10, bearing:63.82, pitch:0, center:[120.786119, 23.545082], duration:4000, curve: 0.9}
+    ]);
+  });
+
+  // B：起點 → (8.86, 12.75, 41.57, 120.881581,23.470641) → (10.13, 12.75, 41.57, 121.016258,23.872712)
+  $('flyB').addEventListener('click', ()=>{
+    runPath([
+      {zoom:10, bearing:8, pitch:36.5, center:[121.126753, 24.151556], duration:6000, curve:1.6},
+      {zoom:10, bearing:8, pitch:0, center:[121.126753, 24.151556], duration:4000, curve:1.6}
+    ]);
+  });
+
+  // 錯誤提示
+  map.on('error', e=>{
+    if (e?.error?.status) say(`來源錯誤：${e.error.status} ${e.error.statusText||''}\n${e.error.url||''}`);
+  });
+
+  // === 模式地形：讀 bounds → 新增 image source + raster layer（預設不顯示） ===
+  async function addTerrainOverlay() {
+    // 讀入四角座標（來源是 [lat, lon]，需轉成 [lng, lat]）
+    const b = await fetch('terrain_bounds.json').then(r => r.json());
+    const sw = ([lat, lon]) => [lon, lat];
+    const coords = [ sw(b.topleft), sw(b.topright), sw(b.bottomright), sw(b.bottomleft) ];
+
+    if (!map.getSource('terrain-img')) {
+      map.addSource('terrain-img', {
+        type: 'image',
+        url: 'terrain_land_only.png',
+        coordinates: coords
+      });
+    }
+
+    // 放在風場之下：若 wind_JJA_day 已存在，就插到它之前
+    const beforeId = map.getLayer('wind_JJA_day') ? 'wind_JJA_day' : undefined;
+    if (!map.getLayer('terrain-layer')) {
+      map.addLayer({
+        id: 'terrain-layer',
+        type: 'raster',
+        source: 'terrain-img',
+        layout: { visibility: 'none' }, // 預設不顯示
+        paint: { 'raster-opacity': parseFloat($('terrainOpacity').value) }
+      }, beforeId);
+    }
+  }
+
+  // 開關/透明度控制
+  function bindTerrainUI() {
+    const chk = $('chkTerrain');
+    const op  = $('terrainOpacity');
+    const opV = $('terrainOpacityV');
+    const legend = $('terrainLegend');
+
+    const applyOpacity = () => {
+      opV.textContent = (+op.value).toFixed(2);
+      if (map.getLayer('terrain-layer')) {
+        map.setPaintProperty('terrain-layer', 'raster-opacity', +op.value);
+      }
+    };
+    op.addEventListener('input', applyOpacity);
+    applyOpacity(); // 初始化數值顯示
+
+    chk.addEventListener('change', () => {
+      const vis = chk.checked ? 'visible' : 'none';
+      if (map.getLayer('terrain-layer')) {
+        map.setLayoutProperty('terrain-layer', 'visibility', vis);
+      }
+      legend.style.display = chk.checked ? 'block' : 'none';
+    });
+  }
+
+</script>
+</body>
+</html>
