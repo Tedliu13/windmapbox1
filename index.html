@@ -222,6 +222,8 @@
   const SOURCE_LAYER = 'twinds';
   const BAND_NAME    = 'wind';
 
+
+
   // === 自訂 TEAL 色帶（用最大風速的比例 0~1 標註停點） ===
   // 你的說明：黑→橘→藍綠→天空藍→琥珀→紅紫
   const TEAL_CUSTOM_FRAC_STOPS = [
@@ -242,7 +244,8 @@
     container:'map', style:STYLE_URL,
     center:[121,23.6], zoom:8.5, pitch:60, bearing:-10, antialias:true
   });
-
+  map.setMinZoom(8);
+  map.setMaxZoom(13);
   const $ = id => document.getElementById(id);
   const say = t => { $('status').textContent = t; console.log(t); };
 
