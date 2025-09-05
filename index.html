@@ -138,6 +138,8 @@
     <option value="newtaipei">新北市</option>
     <option value="keelung">基隆市</option>
     <option value="taoyuan">桃園市</option>
+    <option value="shintzu">新竹市</option>
+    <option value="meowli">苗栗市</option>
     <option value="taichung">台中市</option>
     <option value="nantou">南投市</option>
     <option value="changhua">彰化市</option>
@@ -351,10 +353,10 @@
   panel.style.display = 'none';
 
   // === 平順飛行工具（地形無感） ===
-  // 1) 柔和 easing
+  // 柔和 easing（保留）
   const easeInOutSine = t => 0.5 - 0.5 * Math.cos(Math.PI * t);
 
-  // 2) 降低粒子負擔（飛行時暫停動畫，結束恢復）
+  // 降負擔（可讓飛行更穩；若希望飛行時粒子仍動，把 0.2 調大一點）
   const WIND_LAYER_IDS = () =>
     Object.keys(TILESETS).filter(k => TILESETS[k]).map(k => 'wind_' + k);
 
@@ -365,41 +367,53 @@
     WIND_LAYER_IDS().forEach(id => {
       if (!map.getLayer(id)) return;
       map.setPaintProperty(id, 'raster-particle-count', enableFull ? count : Math.max(1500, Math.round(count * 0.25)));
-      map.setPaintProperty(id, 'raster-particle-speed-factor', enableFull ? speed : 0.6); // 暫停動畫更順
+      map.setPaintProperty(id, 'raster-particle-speed-factor', enableFull ? speed : Math.max(0.2, speed * 0.3)); // ← 不關地形、也不把粒子完全停住
       map.setPaintProperty(id, 'raster-particle-fade-opacity-factor', enableFull ? fade : 0.85);
     });
   }
 
-  // 3) 單段 easeTo（不中途縮放），等待 moveend
+  // 不縮放弧線的單段動畫（保留）
   function easeToAsync(opts, duration = 4500) {
     return new Promise(resolve => {
-      map.stop();                       // 避免疊動
+      map.stop();
       map.once('moveend', resolve);
       map.easeTo({ duration, easing: easeInOutSine, essential: true, ...opts });
     });
   }
 
-  // 4) 多段串接
+  // 多段串接（保留）
   async function smoothRun(steps, durations=[]) {
     for (let i=0; i<steps.length; i++) {
       await easeToAsync(steps[i], durations[i] ?? 4500);
-      await new Promise(r => setTimeout(r, 120)); // 緩一拍再接下一段
+      await new Promise(r => setTimeout(r, 120));
     }
   }
 
-  // 5) ★ 地形無感飛行：飛行前暫時關閉地形，完畢後恢復（含 exaggeration）
-  async function runNoTerrain(steps, durations=[]) {
-    // 記錄目前 terrain 設定
-    const st = map.getStyle();
-    const terrainSpec = st.terrain ? { ...st.terrain } : null;
-
+  // ✅ 保留地形的平順飛行：整段「鎖定 pitch」，最後再把 pitch 補到目標值
+  async function runWithTerrain(steps, durations=[], { lockPitch=true } = {}) {
     throttleParticles(false);
-    if (terrainSpec) map.setTerrain(null);      // 關地形 → 不會因地形起伏造成視覺爬升/下降
-    await smoothRun(steps, durations);
-    if (terrainSpec) map.setTerrain(terrainSpec); // 恢復地形（你原本是 exaggeration: 4）
+    const startPitch = map.getPitch();
+
+    // 先用「固定的 pitch」飛完全程，降低地形視差造成的「爬升/下降」錯覺
+    const patched = lockPitch
+      ? steps.map(s => ({ ...s, pitch: startPitch }))
+      : steps;
+
+    await smoothRun(patched, durations);
+
+    // 如果最後一步有指定 pitch，飛完後再短促補上目標 pitch（不影響地形）
+    const last = steps[steps.length - 1] || {};
+    if (lockPitch && typeof last.pitch === 'number' && Math.abs(last.pitch - startPitch) > 0.1) {
+      await easeToAsync({
+        center: last.center ?? map.getCenter(),
+        zoom:   last.zoom   ?? map.getZoom(),
+        bearing:last.bearing ?? map.getBearing(),
+        pitch:  last.pitch
+      }, 900);
+    }
+
     throttleParticles(true);
   }
-
 
   // ---- 飛行視角 ----
   function flyToAsync(opts){
@@ -411,21 +425,30 @@
   }
   async function runPath(steps){ for (const s of steps) await flyToAsync(s); }
 
-  // A：起點 → (8.02, 39.82, 41.03, 120.961243,23.095180) → (9.29, 63.82, 46.53, 120.786119,23.545082)
+  // A
   $('flyA').addEventListener('click', ()=>{
-    runNoTerrain([
+    runWithTerrain([
       { zoom: 8.02, bearing: 39.82, pitch: 41.03, center: [120.961243, 23.095180] },
-      { zoom: 9.29, bearing: 0, pitch: 46.53, center: [120.786119, 23.545082] }
-    ], [5000, 6000]);
+      { zoom: 9.29, bearing: 63.82, pitch: 46.53, center: [120.786119, 23.545082] }
+    ], [5000, 6000], { lockPitch: true });
   });
 
-  // B：起點 → (8.86, 12.75, 41.57, 120.881581,23.470641) → (10.13, 12.75, 41.57, 121.016258,23.872712)
+  // B
   $('flyB').addEventListener('click', ()=>{
-    runNoTerrain([
+    runWithTerrain([
       { zoom: 8.86, bearing: 12.75, pitch: 41.57, center: [120.881581, 23.470641] },
-      { zoom: 10.13, bearing: 0, pitch: 41.57, center: [121.016258, 23.872712] }
-    ], [5000, 6000]);
+      { zoom: 10.13, bearing: 12.75, pitch: 41.57, center: [121.016258, 23.872712] }
+    ], [5000, 6000], { lockPitch: true });
   });
+
+  // 「特定區」選單
+  $('presetSelect').addEventListener('change', (e)=>{
+    const key = e.target.value;
+    if (!key) return;
+    const p = CITY_PRESETS[key];
+    runWithTerrain([ p ], [ 3000 ], { lockPitch: true });
+  });
+
 
   // 城市預設視角（中心、縮放、俯仰、方位）— 先給通用值，你可再微調
   const CITY_PRESETS = {
@@ -433,10 +456,12 @@
     newtaipei: { center: [121.4628, 25.0143], zoom: 11.4, pitch: 45, bearing: 20 }, // 新北市板橋
     keelung:   { center: [121.7463, 25.1313], zoom: 11.4,  pitch: 45, bearing: 20 }, // 基隆市
     taoyuan:   { center: [121.2969, 24.9937], zoom: 11.4,  pitch: 45, bearing: 20 }, // 桃園市
+    shintzu:   { center: [120.9647, 24.80395], zoom: 11.4,  pitch: 45, bearing: 20 }, // 新竹市
+    meowli:   { center: [120.9417, 24.48927], zoom: 11.4,  pitch: 45, bearing: 20 }, // 苗栗市
     taichung:  { center: [120.6790, 24.1477], zoom: 11.4,  pitch: 45, bearing: 20 }, // 台中市
     nantou:    { center: [120.6850, 23.9059], zoom: 11.4,  pitch: 45, bearing: 20 }, // 南投市
     changhua:  { center: [120.5410, 24.0805], zoom: 11.4,  pitch: 45, bearing: 20 }, // 彰化市
-    yunlin:    { center: [120.5434, 23.7073], zoom: 11.4,  pitch: 45, bearing: 20 }, // 雲林斗六）
+    yunlin:    { center: [120.5434, 23.7073], zoom: 11.4,  pitch: 45, bearing: 20 }, // 雲林斗六
     chiayi:    { center: [120.4473, 23.4755], zoom: 11.4,  pitch: 45, bearing: 20 }, // 嘉義市
     tainan:    { center: [120.2270, 22.9999], zoom: 11.4,  pitch: 45, bearing: 20 }, // 台南市
     kaohsiung: { center: [120.3014, 22.6273], zoom: 11.4,  pitch: 45, bearing: 20 }, // 高雄市
@@ -446,13 +471,6 @@
     yilan:     { center: [121.7530, 24.7590], zoom: 11.4,  pitch: 45, bearing: 20 }  // 宜蘭市
   };
 
-  // 選單變更 → 地形無感飛行到該城市
-  $('presetSelect').addEventListener('change', (e)=>{
-    const key = e.target.value;
-    if (!key) return;
-    const p = CITY_PRESETS[key];
-    runNoTerrain([ p ], [ 4500 ]);
-  });
 
 
   // 錯誤提示
