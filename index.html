@@ -132,8 +132,8 @@
 <div class="flybar">
   <button id="flyA">飛行視角 A</button>
   <button id="flyB">飛行視角 B</button>
-  <select id="presetSelect" title="都會區">
-    <option value="">都會區</option>
+  <select id="presetSelect" title="縣市視角">
+    <option value="">縣市視角</option>
     <option value="taipei">台北市</option>
     <option value="newtaipei">新北市</option>
     <option value="keelung">基隆市</option>
@@ -335,7 +335,6 @@
   bind('pMax','raster-particle-max-speed',0);
   bind('pReset','raster-particle-reset-rate-factor',2);
   bind('pElev','raster-particle-elevation',0);
-  $('pPalette').addEventListener('change', ()=>setPaint('raster-particle-color', paletteExpr($('pPalette').value)));
   document.querySelectorAll('input[name="season"],input[name="tod"]').forEach(el=>{
     el.addEventListener('change', ()=>showOnly(currentKey()));
   });
@@ -355,27 +354,34 @@
   // === 平順飛行工具（地形無感） ===
   // 柔和 easing（保留）
   const easeInOutSine = t => 0.5 - 0.5 * Math.cos(Math.PI * t);
+  const FLY_DUR = 4000; // 城市或單段飛行的預設時間
+// 用法：runWithTerrain([ preset ], [ FLY_DUR ], { lockPitch:true });
+
 
   // 降負擔（可讓飛行更穩；若希望飛行時粒子仍動，把 0.2 調大一點）
   const WIND_LAYER_IDS = () =>
     Object.keys(TILESETS).filter(k => TILESETS[k]).map(k => 'wind_' + k);
 
+  function visibleWindLayerId(){
+    const ids = Object.keys(TILESETS).filter(k => TILESETS[k]).map(k => 'wind_' + k);
+    return ids.find(id => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') === 'visible');
+  }
   function throttleParticles(enableFull) {
+    const id = visibleWindLayerId();
+    if (!id) return;
     const count = +$('pCount').value;
     const speed = parseFloat($('pSpeed').value);
     const fade  = parseFloat($('pFade').value);
-    WIND_LAYER_IDS().forEach(id => {
-      if (!map.getLayer(id)) return;
-      map.setPaintProperty(id, 'raster-particle-count', enableFull ? count : Math.max(1500, Math.round(count * 0.25)));
-      map.setPaintProperty(id, 'raster-particle-speed-factor', enableFull ? speed : Math.max(0.2, speed * 0.3)); // ← 不關地形、也不把粒子完全停住
-      map.setPaintProperty(id, 'raster-particle-fade-opacity-factor', enableFull ? fade : 0.85);
-    });
+    map.setPaintProperty(id, 'raster-particle-count', enableFull ? count : Math.max(1500, Math.round(count * 0.25)));
+    map.setPaintProperty(id, 'raster-particle-speed-factor', enableFull ? speed : Math.max(0.2, speed * 0.3));
+    map.setPaintProperty(id, 'raster-particle-fade-opacity-factor', enableFull ? fade : 0.85);
   }
+
 
   // 不縮放弧線的單段動畫（保留）
   function easeToAsync(opts, duration = 4500) {
     return new Promise(resolve => {
-      map.stop();
+      if (map.isMoving()) map.stop();
       map.once('moveend', resolve);
       map.easeTo({ duration, easing: easeInOutSine, essential: true, ...opts });
     });
@@ -415,6 +421,14 @@
     throttleParticles(true);
   }
 
+  function msFor(from, to, min=1800, max=4200){
+    const a = map.project(from), b = map.project(to);
+    const d = Math.hypot(a.x-b.x, a.y-b.y);           // 螢幕座標距離（像素）
+    const t = Math.min(1, d / 1200);                  // 0~1 規模化
+    return Math.round(min + (max-min) * t*t);         // 慢速起步感更自然
+  }
+
+
   // ---- 飛行視角 ----
   function flyToAsync(opts){
     return new Promise(res=>{
@@ -446,7 +460,7 @@
     const key = e.target.value;
     if (!key) return;
     const p = CITY_PRESETS[key];
-    runWithTerrain([ p ], [ 3000 ], { lockPitch: true });
+    runWithTerrain([ p ], [ FLY_DUR ], { lockPitch: true });
   });
 
 
