@@ -318,20 +318,13 @@
     return `${s}_${t}`;
   }
   function showOnly(key){
-    // 粒子層
     Object.keys(TILESETS).forEach(k=>{
       if (!TILESETS[k]) return;
-      const lyrId='wind_'+k;
-      if (map.getLayer(lyrId)) map.setLayoutProperty(lyrId,'visibility', k===key?'visible':'none');
-    });
-    // 風向箭頭層
-    Object.keys(WINDDIR_FILES).forEach(k=>{
-      const lyrId='dir_'+k;
+      const lyrId = 'wind_'+k;
       if (map.getLayer(lyrId)) map.setLayoutProperty(lyrId,'visibility', k===key?'visible':'none');
     });
     say('顯示：'+key);
   }
-
   function setPaint(prop,val){
     Object.keys(TILESETS).forEach(k=>{
       if (!TILESETS[k]) return;
@@ -349,9 +342,6 @@
     bindTerrainUI();
     bindCountyToggle();          // ← 新增：綁定面板開關
     drawWindLegend();
-    await addWindDirLayers();  // ← 新增：載入風向箭頭層
-    // 再呼叫一次 showOnly(currentKey())，確保初始只顯示當前情境
-    showOnly(currentKey());
   });
 
 
@@ -369,86 +359,6 @@
     // 再重畫 legend
     drawWindLegend();
   });
-
-  // 一個帶黑邊的白色箭頭（SVG）— 不用額外檔案
-  const ARROW_SVG = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-    <defs><style>
-      .shadow{stroke:#000;stroke-width:6;stroke-linecap:round;fill:none}
-      .main{stroke:#fff;stroke-width:3;stroke-linecap:round;fill:none}
-    </style></defs>
-    <path class="shadow" d="M10 32 L46 32" />
-    <path class="shadow" d="M46 20 L58 32 L46 44" />
-    <path class="main"   d="M10 32 L46 32" />
-    <path class="main"   d="M46 20 L58 32 L46 44" />
-  </svg>`;
-  function addArrowImageOnce() {
-    if (map.hasImage?.('wind-arrow')) return;
-    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(ARROW_SVG);
-    map.loadImage(url, (err, img) => {
-      if (err) { console.error(err); return; }
-      map.addImage('wind-arrow', img);
-    });
-  }
-
-  // 把這 4 行改成你放在網站上的檔名/路徑
-  const WINDDIR_FILES = {
-    DJF_day:   'wind_DJF_day_native.json',
-    DJF_night: 'wind_DJF_night_native.json',
-    JJA_day:   'wind_JJA_day_native.json',
-    JJA_night: 'wind_JJA_night_native.json'
-  };
-  // 如果 JSON 存的是「風從 X° 吹來」（常見氣象“來向”），就把這個設 true 會自動 +180° 轉成箭頭指向去向
-  const DIR_IS_FROM = true;
-
-  async function loadDirGeoJSON(url){
-    const gj = await fetch(url).then(r=>r.json());
-    if (!gj || !gj.features) return gj;
-    for (const f of gj.features){
-      const p = f.properties || {};
-      // 你 JSON 裡可能叫 dir / direction / angle；或只有 u/v
-      let ang = null;
-      if (p.angle != null) ang = +p.angle;
-      else if (p.dir != null) ang = +p.dir;
-      else if (p.direction != null) ang = +p.direction;
-      else if (p.u != null && p.v != null) {
-        ang = Math.atan2(+p.v, +p.u) * 180 / Math.PI; // u,v → 角度（朝去向）
-      }
-      if (ang != null && DIR_IS_FROM) ang = (ang + 180) % 360; // 來向→去向
-      if (!f.properties) f.properties = {};
-      f.properties.angle = ang ?? 0; // 統一放在 angle 屬性
-    }
-    return gj;
-  }
-
-  async function addWindDirLayers(){
-    addArrowImageOnce();
-    for (const [key, url] of Object.entries(WINDDIR_FILES)){
-      const srcId = 'dir_src_'+key, lyrId = 'dir_'+key;
-      if (!map.getSource(srcId)) {
-        const data = await loadDirGeoJSON(url);
-        map.addSource(srcId, { type:'geojson', data });
-      }
-      if (!map.getLayer(lyrId)) {
-        map.addLayer({
-          id: lyrId, type:'symbol', source: srcId, minzoom: 11, // ← 只在 z≥11 顯示
-          layout: {
-            'icon-image': 'wind-arrow',
-            'icon-rotate': ['get','angle'],     // 用我們標準化後的角度
-            'icon-rotation-alignment': 'map',
-            'icon-allow-overlap': true,
-            'icon-size': [
-              'interpolate',['linear'],['zoom'],
-              11, 0.45,
-              13, 0.85,
-              15, 1.20
-            ],
-            'visibility': 'none'                // 預設先隱藏，跟著當前季節/日夜切換
-          }
-        });
-      }
-    }
-  }
 
 
 
