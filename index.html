@@ -324,12 +324,13 @@
       const lyrId='wind_'+k;
       if (map.getLayer(lyrId)) map.setLayoutProperty(lyrId,'visibility', k===key?'visible':'none');
     });
-    // 風向箭頭層
+    // 風向箭頭（關鍵）
     Object.keys(WINDDIR_FILES).forEach(k=>{
-      const lyrId='dir_'+k;
-      if (map.getLayer(lyrId)) map.setLayoutProperty(lyrId,'visibility', k===key?'visible':'none');
+      const id = 'dir_' + k;               // 如果你的圖層命名是 'dir_'+k+'_fa' 就改這裡
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', k === key ? 'visible' : 'none');
+      }
     });
-    say('顯示：'+key);
   }
 
   function setPaint(prop,val){
