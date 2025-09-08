@@ -370,26 +370,38 @@
     drawWindLegend();
   });
 
-  // 一個帶黑邊的白色箭頭（SVG）— 不用額外檔案
-  const ARROW_SVG = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-    <defs><style>
-      .shadow{stroke:#000;stroke-width:6;stroke-linecap:round;fill:none}
-      .main{stroke:#fff;stroke-width:3;stroke-linecap:round;fill:none}
-    </style></defs>
-    <path class="shadow" d="M10 32 L46 32" />
-    <path class="shadow" d="M46 20 L58 32 L46 44" />
-    <path class="main"   d="M10 32 L46 32" />
-    <path class="main"   d="M46 20 L58 32 L46 44" />
-  </svg>`;
-  function addArrowImageOnce() {
-    if (map.hasImage?.('wind-arrow')) return;
-    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(ARROW_SVG);
-    map.loadImage(url, (err, img) => {
-      if (err) { console.error(err); return; }
-      map.addImage('wind-arrow', img);
-    });
+  // 產生一個帶黑邊的白色箭頭影像（Canvas → addImage），避免用不支援的 SVG
+  function ensureArrowImage() {
+    if (map.hasImage && map.hasImage('wind-arrow')) return;
+
+    const size = 64;                               // 基準尺寸（會再依 DPR 放大）
+    const dpr  = Math.max(2, Math.round(window.devicePixelRatio || 1)); // 讓小圖也銳利
+    const c = document.createElement('canvas');
+    c.width  = size * dpr;
+    c.height = size * dpr;
+    const ctx = c.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // 座標系統 0..64：畫箭桿 + 箭頭（先黑邊，再白心）
+    const shaft = () => { ctx.moveTo(10, 32); ctx.lineTo(46, 32); };
+    const head  = () => { ctx.moveTo(46, 20); ctx.lineTo(58, 32); ctx.lineTo(46, 44); };
+
+    // 外框（黑）
+    ctx.strokeStyle = 'rgba(0,0,0,1)'; ctx.lineWidth = 6;
+    ctx.beginPath(); shaft(); ctx.stroke();
+    ctx.beginPath(); head();  ctx.stroke();
+
+    // 內線（白）
+    ctx.strokeStyle = 'rgba(255,255,255,1)'; ctx.lineWidth = 3;
+    ctx.beginPath(); shaft(); ctx.stroke();
+    ctx.beginPath(); head();  ctx.stroke();
+
+    // 註冊到樣式；pixelRatio = dpr，這樣 icon-size 的縮放會更自然
+    map.addImage('wind-arrow', c, { pixelRatio: dpr });
   }
+
 
   // 把這 4 行改成你放在網站上的檔名/路徑
   const WINDDIR_FILES = {
@@ -422,7 +434,7 @@
   }
 
   async function addWindDirLayers(){
-    addArrowImageOnce();
+    ensureArrowImage(); // ← 用 Canvas 版，取代 loadImage(SVG)
     for (const [key, url] of Object.entries(WINDDIR_FILES)){
       const srcId = 'dir_src_'+key, lyrId = 'dir_'+key;
       if (!map.getSource(srcId)) {
