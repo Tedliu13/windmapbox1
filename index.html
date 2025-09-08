@@ -424,57 +424,102 @@
     JJA_day:   'wind_JJA_day_native.json',
     JJA_night: 'wind_JJA_night_native.json'
   };
-  // 如果 JSON 存的是「風從 X° 吹來」（常見氣象“來向”），就把這個設 true 會自動 +180° 轉成箭頭指向去向
+// DIR_IS_FROM = true 代表資料是「風從 X° 吹來」；會自動 +180 變成「去向」
   const DIR_IS_FROM = true;
 
-  async function loadDirGeoJSON(url){
-    const gj = await fetch(url).then(r=>r.json());
-    if (!gj || !gj.features) return gj;
+  // 每 N 格取一個箭頭（預設 3）
+  async function loadDirGeoJSON(url, gridStep = 3){
+    const gj = await fetch(url).then(r => r.json());
+    if (!gj || !Array.isArray(gj.features)) return gj;
+
+    // 先取一批樣本估算網格間距（允許少量噪聲）
+    const sample = gj.features.slice(0, Math.min(2000, gj.features.length));
+    const lons = Array.from(new Set(sample.map(f => f.geometry?.coordinates?.[0]).filter(Number.isFinite))).sort((a,b)=>a-b);
+    const lats = Array.from(new Set(sample.map(f => f.geometry?.coordinates?.[1]).filter(Number.isFinite))).sort((a,b)=>a-b);
+    const minPosDiff = arr => {
+      let d = Infinity;
+      for (let i=1;i<arr.length;i++){
+        const diff = arr[i]-arr[i-1];
+        if (diff > 1e-9 && diff < d) d = diff;
+      }
+      return Number.isFinite(d) ? d : 0.02; // 沒估到就退回 0.02°
+    };
+    const dlon = minPosDiff(lons);
+    const dlat = minPosDiff(lats);
+    const lon0 = lons[0] ?? sample[0]?.geometry?.coordinates?.[0] ?? 0;
+    const lat0 = lats[0] ?? sample[0]?.geometry?.coordinates?.[1] ?? 0;
+
+    const kept = [];
     for (const f of gj.features){
+      const g = f.geometry;
+      if (!g || g.type !== 'Point') continue;
+      const [lon, lat] = g.coordinates;
+
+      // 依據估算的網格步長，換算成整數格座標（四捨五入處理微小浮點誤差）
+      const i = Math.round((lon - lon0) / dlon);
+      const j = Math.round((lat - lat0) / dlat);
+      if ((i % gridStep) !== 0 || (j % gridStep) !== 0) continue; // ← 每 3 格保留一次
+
+      // 補齊 angle / mag 屬性
       const p = f.properties || {};
-      // 你 JSON 裡可能叫 dir / direction / angle；或只有 u/v
       let ang = null;
       if (p.angle != null) ang = +p.angle;
       else if (p.dir != null) ang = +p.dir;
       else if (p.direction != null) ang = +p.direction;
-      else if (p.u != null && p.v != null) {
-        ang = Math.atan2(+p.v, +p.u) * 180 / Math.PI; // u,v → 角度（朝去向）
-      }
-      if (ang != null && DIR_IS_FROM) ang = (ang + 180) % 360; // 來向→去向
-      if (!f.properties) f.properties = {};
-      f.properties.angle = ang ?? 0; // 統一放在 angle 屬性
+      else if (p.u != null && p.v != null) ang = Math.atan2(+p.v, +p.u) * 180 / Math.PI;
+
+      if (ang == null) ang = 0;
+      if (DIR_IS_FROM) ang = (ang + 180) % 360; // 來向→去向
+
+      let mag = null;
+      if (p.speed != null) mag = +p.speed;
+      else if (p.mag != null) mag = +p.mag;
+      else if (p.u != null && p.v != null) mag = Math.hypot(+p.u, +p.v);
+
+      f.properties = { ...p, angle: ang, mag: mag ?? 0, i, j };
+      kept.push(f);
     }
-    return gj;
+
+    return { type: 'FeatureCollection', features: kept };
   }
 
+
   async function addWindDirLayers(){
-    ensureArrowImage(); // ← 用 Canvas 版，取代 loadImage(SVG)
+    ensureArrowImage(); // 你前面用 Canvas 建立的箭頭影像
+
     for (const [key, url] of Object.entries(WINDDIR_FILES)){
       const srcId = 'dir_src_'+key, lyrId = 'dir_'+key;
       if (!map.getSource(srcId)) {
-        const data = await loadDirGeoJSON(url);
+        const data = await loadDirGeoJSON(url, 3); // ← 每 3 格抽稀
         map.addSource(srcId, { type:'geojson', data });
       }
       if (!map.getLayer(lyrId)) {
         map.addLayer({
-          id: lyrId, type:'symbol', source: srcId, minzoom: 11, // ← 只在 z≥11 顯示
+          id: lyrId,
+          type: 'symbol',
+          source: srcId,
+          minzoom: 11,
           layout: {
             'icon-image': 'wind-arrow',
-            'icon-rotate': ['get','angle'],     // 用我們標準化後的角度
+            'icon-rotate': ['get','angle'],
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,
             'icon-size': [
               'interpolate',['linear'],['zoom'],
-              11, 0.45,
-              13, 0.85,
-              15, 1.20
+              11, 0.6,
+              15, 1.4
             ],
-            'visibility': 'none'                // 預設先隱藏，跟著當前季節/日夜切換
+            'visibility': 'none'
+          },
+          paint: {
+            // 小風速可淡掉（可選）
+            'icon-opacity': ['interpolate',['linear'],['get','mag'], 0, 0.3, 0.5, 1]
           }
         });
       }
     }
   }
+
 
 
 
