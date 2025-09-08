@@ -349,6 +349,7 @@
     bindTerrainUI();
     bindCountyToggle();          // ← 新增：綁定面板開關
     drawWindLegend();
+    ensureArrowImage();      // 每次 style 載入都安全重建影像
     await addWindDirLayers();  // ← 新增：載入風向箭頭層
     // 再呼叫一次 showOnly(currentKey())，確保初始只顯示當前情境
     showOnly(currentKey());
@@ -370,37 +371,50 @@
     drawWindLegend();
   });
 
-  // 產生一個帶黑邊的白色箭頭影像（Canvas → addImage），避免用不支援的 SVG
+  // 產生一個帶黑邊白心的箭頭，使用 ImageData 明確指定尺寸
   function ensureArrowImage() {
-    if (map.hasImage && map.hasImage('wind-arrow')) return;
+    const NAME = 'wind-arrow';
 
-    const size = 64;                               // 基準尺寸（會再依 DPR 放大）
-    const dpr  = Math.max(2, Math.round(window.devicePixelRatio || 1)); // 讓小圖也銳利
-    const c = document.createElement('canvas');
-    c.width  = size * dpr;
-    c.height = size * dpr;
-    const ctx = c.getContext('2d');
-    ctx.scale(dpr, dpr);
+    // --- 固定整數尺寸，避免非整數 DPR 造成誤差 ---
+    const base = 64;                 // 以 64px 為基底畫布
+    const dpr  = 2;                  // 用固定 2x（夠銳利又穩定）
+    const W = base * dpr, H = base * dpr;
+
+    const cv  = document.createElement('canvas');
+    cv.width  = W;                   // 這裡是實際像素尺寸（非 CSS）
+    cv.height = H;
+    const ctx = cv.getContext('2d');
+    ctx.scale(dpr, dpr);             // 把作畫座標縮回 0..64
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // 座標系統 0..64：畫箭桿 + 箭頭（先黑邊，再白心）
+    // 畫箭頭（→）: 桿 + 箭頭
     const shaft = () => { ctx.moveTo(10, 32); ctx.lineTo(46, 32); };
     const head  = () => { ctx.moveTo(46, 20); ctx.lineTo(58, 32); ctx.lineTo(46, 44); };
 
-    // 外框（黑）
-    ctx.strokeStyle = 'rgba(0,0,0,1)'; ctx.lineWidth = 6;
+    // 外框(黑)
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 6;
     ctx.beginPath(); shaft(); ctx.stroke();
     ctx.beginPath(); head();  ctx.stroke();
 
-    // 內線（白）
-    ctx.strokeStyle = 'rgba(255,255,255,1)'; ctx.lineWidth = 3;
+    // 內線(白)
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
     ctx.beginPath(); shaft(); ctx.stroke();
     ctx.beginPath(); head();  ctx.stroke();
 
-    // 註冊到樣式；pixelRatio = dpr，這樣 icon-size 的縮放會更自然
-    map.addImage('wind-arrow', c, { pixelRatio: dpr });
+    // 轉成 ImageData（長度 = W*H*4）
+    const id = ctx.getImageData(0, 0, W, H);
+
+    // 加之前先移除同名影像，避免尺寸不一致
+    try { if (map.hasImage(NAME)) map.removeImage(NAME); } catch(_) {}
+
+    // 用 {width,height,data} 明確添加，並設 pixelRatio 與 dpr 一致
+    map.addImage(NAME, { width: W, height: H, data: id.data }, { pixelRatio: dpr });
   }
+
+
 
 
   // 把這 4 行改成你放在網站上的檔名/路徑
