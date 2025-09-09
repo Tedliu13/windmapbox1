@@ -108,6 +108,7 @@
     <label><input type="radio" name="tod" value="night"> 夜晚</label>
   </div>
 
+  <div id="rasterControls">
   <div class="title" style="margin-top:6px">粒子參數</div>
   <div class="row">
     <label>粒子數</label>
@@ -147,6 +148,7 @@
       <option value="teal">多色階</option>
       <option value="fire">橘色系</option>
     </select>
+  </div>
   </div>
   <div class="title" style="margin-top:6px">模式地形</div>
     <div class="inline">
@@ -212,6 +214,9 @@
 <div id="status" class="status">初始化中…</div>
 
 <script>
+  // 關閉 Mapbox 的 raster-particle 粒子動畫（只留貼地粒子 + 風向箭頭）
+  const USE_RASTER_PARTICLE = false;
+
   // 1) 公開 token
   mapboxgl.accessToken = 'pk.eyJ1IjoidGVkbGl1IiwiYSI6ImNtMHAxMjdveDAwZWUya29sanY1c3Btc2EifQ.dGpYV4RZ4-OcpITjSKfcfg';
 
@@ -291,6 +296,14 @@
     }
   }
 
+  if (!USE_RASTER_PARTICLE) {
+    const el = document.getElementById('rasterControls');
+    if (el) el.style.display = 'none';
+    // 如果你的色階 legend 是給 raster-particle 用，也一併隱藏：
+    document.getElementById('speedLegend')?.style.display = 'none';
+  }
+
+
   // 加載四個風場圖層
   function addAllWindLayers(){
     Object.entries(TILESETS).forEach(([key,url])=>{
@@ -353,10 +366,26 @@
     });
   }
 
+  function removeRasterParticleLayers(){
+    if (typeof TILESETS !== 'object') return;  // 沒定義就略過
+    Object.keys(TILESETS).forEach(k => {
+      const lyrId = 'wind_' + k;
+      const srcId = 'src_' + k;
+      if (map.getLayer(lyrId))  map.removeLayer(lyrId);
+      if (map.getSource(srcId)) map.removeSource(srcId);
+    });
+  }
+
+
   // 1) 初次載入後畫一次
   map.on('style.load', async ()=>{
     enableTerrainIfAny();
-    addAllWindLayers();
+    //addAllWindLayers();
+    if (USE_RASTER_PARTICLE) {
+      addAllWindLayers();
+    } else {
+      removeRasterParticleLayers();   // ← 新增：把舊的粒子層/來源清掉
+    }
     await addTerrainOverlay();
     await addCountyBoundaries(); // ← 新增：載入縣市邊界（預設隱藏）
     bindTerrainUI();
