@@ -425,101 +425,103 @@
     JJA_day:   'wind_JJA_day_native.json',
     JJA_night: 'wind_JJA_night_native.json'
   };
-// DIR_IS_FROM = true 代表資料是「風從 X° 吹來」；會自動 +180 變成「去向」
+// 你給我的 native JSON 會包含 U/V 兩筆紀錄（parameterNumber: 2=U, 3=V）
+  // DIR_IS_FROM=true 代表資料是「來向」，會自動 +180 變「去向」
   const DIR_IS_FROM = true;
+  const ROT_OFFSET  = 90;     // 右轉 90°
 
-  // 每 N 格取一個箭頭（預設 3）
-  async function loadDirGeoJSON(url, gridStep = 3){
-    const gj = await fetch(url).then(r => r.json());
-    if (!gj || !Array.isArray(gj.features)) return gj;
+  // 讀 native 風場，抽稀每 N 格，輸出 GeoJSON(Point)
+  async function loadDirFromNative(url, gridStep = 3) {
+    const raw = await fetch(url).then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+      return r.json();
+    });
 
-    // 先取一批樣本估算網格間距（允許少量噪聲）
-    const sample = gj.features.slice(0, Math.min(2000, gj.features.length));
-    const lons = Array.from(new Set(sample.map(f => f.geometry?.coordinates?.[0]).filter(Number.isFinite))).sort((a,b)=>a-b);
-    const lats = Array.from(new Set(sample.map(f => f.geometry?.coordinates?.[1]).filter(Number.isFinite))).sort((a,b)=>a-b);
-    const minPosDiff = arr => {
-      let d = Infinity;
-      for (let i=1;i<arr.length;i++){
-        const diff = arr[i]-arr[i-1];
-        if (diff > 1e-9 && diff < d) d = diff;
-      }
-      return Number.isFinite(d) ? d : 0.02; // 沒估到就退回 0.02°
-    };
-    const dlon = minPosDiff(lons);
-    const dlat = minPosDiff(lats);
-    const lon0 = lons[0] ?? sample[0]?.geometry?.coordinates?.[0] ?? 0;
-    const lat0 = lats[0] ?? sample[0]?.geometry?.coordinates?.[1] ?? 0;
+    const arr = Array.isArray(raw) ? raw : (raw.data || raw);
+    const uRec = arr.find(r => r?.header?.parameterNumber === 2); // U 分量
+    const vRec = arr.find(r => r?.header?.parameterNumber === 3); // V 分量
+    if (!uRec || !vRec) throw new Error('找不到 U/V 分量記錄');
 
-    const kept = [];
-    for (const f of gj.features){
-      const g = f.geometry;
-      if (!g || g.type !== 'Point') continue;
-      const [lon, lat] = g.coordinates;
-
-      // 依據估算的網格步長，換算成整數格座標（四捨五入處理微小浮點誤差）
-      const i = Math.round((lon - lon0) / dlon);
-      const j = Math.round((lat - lat0) / dlat);
-      if ((i % gridStep) !== 0 || (j % gridStep) !== 0) continue; // ← 每 3 格保留一次
-
-      // 補齊 angle / mag 屬性
-      const p = f.properties || {};
-      let ang = null;
-      if (p.angle != null) ang = +p.angle;
-      else if (p.dir != null) ang = +p.dir;
-      else if (p.direction != null) ang = +p.direction;
-      else if (p.u != null && p.v != null) ang = Math.atan2(+p.v, +p.u) * 180 / Math.PI;
-
-      if (ang == null) ang = 0;
-      if (DIR_IS_FROM) ang = (ang + 180) % 360; // 來向→去向
-
-      let mag = null;
-      if (p.speed != null) mag = +p.speed;
-      else if (p.mag != null) mag = +p.mag;
-      else if (p.u != null && p.v != null) mag = Math.hypot(+p.u, +p.v);
-
-      f.properties = { ...p, angle: ang, mag: mag ?? 0, i, j };
-      kept.push(f);
+    const { nx, ny, lo1, la1, dx, dy } = uRec.header; // 假設 U/V header 一致
+    const U = uRec.data, V = vRec.data;
+    if (!U || !V || U.length !== nx * ny || V.length !== nx * ny) {
+      throw new Error(`U/V 長度與 nx*ny 不符 (nx=${nx}, ny=${ny}, U=${U?.length}, V=${V?.length})`);
     }
 
-    return { type: 'FeatureCollection', features: kept };
+    const lonC = i => lo1 + (i + 0.5) * dx; // 取格心
+    const latC = j => la1 - (j + 0.5) * dy; // 緯度向南遞減（重點）
+
+    const feats = [];
+    for (let j = 0; j < ny; j += gridStep) {
+      for (let i = 0; i < nx; i += gridStep) {
+        const idx = j * nx + i;
+        const u = U[idx], v = V[idx];
+        if (u == null || v == null || isNaN(u) || isNaN(v)) continue;
+
+        // 以正北為 0°、順時針（Mapbox 的 text/icon-rotate 預設）
+        let ang = Math.atan2(u, v) * 180 / Math.PI;   // u(東)、v(北)
+        if (DIR_IS_FROM) ang = (ang + 180) % 360;     // 來向→去向
+        ang = (ang + ROT_OFFSET + 360) % 360;        // ★ 右轉 90°
+        const mag = Math.hypot(u, v);
+
+        feats.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [ lonC(i), latC(j) ] },
+          properties: { angle: ang, mag, u, v, i, j }
+        });
+      }
+    }
+    return { type: 'FeatureCollection', features: feats };
   }
 
 
-  async function addWindDirLayers(){
-    ensureArrowImage(); // 你前面用 Canvas 建立的箭頭影像
 
-    for (const [key, url] of Object.entries(WINDDIR_FILES)){
-      const srcId = 'dir_src_'+key, lyrId = 'dir_'+key;
-      if (!map.getSource(srcId)) {
-        const data = await loadDirGeoJSON(url, 3); // ← 每 3 格抽稀
-        map.addSource(srcId, { type:'geojson', data });
+  async function addWindDirLayers(gridStep = 3) {
+    ensureArrowImage(); // 你用 Canvas 注册的箭頭影像
+
+    const added = [];
+    for (const [key, url] of Object.entries(WINDDIR_FILES)) {
+      const srcId = 'dir_src_' + key, lyrId = 'dir_' + key;
+
+      // ★ 用「native→GeoJSON」的轉換
+      let data;
+      try {
+        data = await loadDirFromNative(url, gridStep);
+      } catch (e) {
+        console.error('[winddir] 讀取/轉換失敗 →', key, url, e);
+        continue;
       }
+
+      if (!map.getSource(srcId)) map.addSource(srcId, { type:'geojson', data });
       if (!map.getLayer(lyrId)) {
         map.addLayer({
           id: lyrId,
           type: 'symbol',
           source: srcId,
-          minzoom: 11,
+          minzoom: 10,
           layout: {
             'icon-image': 'wind-arrow',
-            'icon-rotate': ['get','angle'],
+            'icon-rotate': ['get', 'angle'],
             'icon-rotation-alignment': 'map',
             'icon-allow-overlap': true,
             'icon-size': [
-              'interpolate',['linear'],['zoom'],
-              11, 0.6,
-              15, 1.4
+              'interpolate', ['linear'], ['zoom'],
+              11, 0.60,
+              13, 1.00,
+              15, 1.40
             ],
             'visibility': 'none'
           },
           paint: {
-            // 小風速可淡掉（可選）
-            'icon-opacity': ['interpolate',['linear'],['get','mag'], 0, 0.3, 0.5, 1]
+            'icon-opacity': ['interpolate', ['linear'], ['get','mag'], 0, 0.3, 0.5, 1]
           }
         });
+        added.push(lyrId);
       }
     }
+    console.log('[winddir] layers added:', added);
   }
+
 
 
 
