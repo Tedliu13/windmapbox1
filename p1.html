@@ -49,6 +49,14 @@
 mapboxgl.accessToken = 'pk.eyJ1IjoidGVkbGl1IiwiYSI6ImNtMHAxMjdveDAwZWUya29sanY1c3Btc2EifQ.dGpYV4RZ4-OcpITjSKfcfg';
 const STYLE_URL = 'mapbox://styles/tedliu/cm0qicaza00mf01pwfsfj3qgx';
 
+// 視覺速度倍率：越大移動越明顯（建議 60~140）
+const VISUAL_GAIN_BASE = 3000; 
+// 顆數預設
+const SURF_COUNT_DEFAULT = 2400;   // 原本 1200 → 2400
+// 如果你有面板 slider，初始值一起改：<input id="count" ... value="2400">
+
+
+
 // ---- 四份 native 風場檔 ----
 const FILES = {
   DJF_day:   'wind_DJF_day_native.json',
@@ -56,7 +64,7 @@ const FILES = {
   JJA_day:   'wind_JJA_day_native.json',
   JJA_night: 'wind_JJA_night_native.json'
 };
-const DIR_IS_FROM = true; // 你的 native 角度/向量是「來向」，演算法會自動轉成「去向」
+const DIR_IS_FROM = false; // 你的 native 角度/向量是「來向」，演算法會自動轉成「去向」
 
 // ---- 地圖 ----
 const map = new mapboxgl.Map({
@@ -68,14 +76,16 @@ const map = new mapboxgl.Map({
   bearing: -8,
   antialias: true
 });
-map.setMinZoom(9);
-map.setMaxZoom(15);
+map.setMinZoom(8);
+map.setMaxZoom(14);
 
-map.on('style.load', () => {
+map.on('style.load', async () => {
   enableTerrain();
   ensureLayers();
+  await map.once('idle');                // ★ 等地圖層級架好
   loadFieldAndStart(currentKey());
 });
+
 
 // 啟用 3D 地形
 function enableTerrain(){
@@ -159,11 +169,12 @@ function ensureLayers(){
   if (!map.getLayer(STATE.trailLyr)){
     map.addLayer({
       id: STATE.trailLyr, type:'line', source: STATE.trailSrc,
+      slot: 'top',                 // ★ 放最上層（Mapbox GL JS v3）
       paint:{
         'line-color': ['interpolate',['linear'],['get','spd'],
-          0,'#ffffff', 2,'#bfe7ff', 5,'#7ed3ff', 8,'#44b9e6', 12,'#2b82cc', 20,'#1e4a9e'],
-        'line-width': 1.5,
-        'line-opacity': 0.72
+          0,'#ffffff', 2,'#ffd280', 5,'#7ed3ff', 8,'#44b9e6', 12,'#2b82cc', 20,'#1e4a9e'],
+        'line-width': 2.0,         // ★ 先放大，容易看到
+        'line-opacity': 0.9
       },
       layout:{ 'line-cap':'round','line-join':'round' }
     });
@@ -171,29 +182,39 @@ function ensureLayers(){
   if (!map.getLayer(STATE.headLyr)){
     map.addLayer({
       id: STATE.headLyr, type:'circle', source: STATE.headSrc,
+      slot: 'top',                 // ★ 放最上層
       paint:{
-        'circle-radius': ['interpolate',['linear'],['zoom'], 9,1.2, 12,1.8, 15,2.4],
+        'circle-radius': ['interpolate',['linear'],['zoom'], 9,3, 12,3.5, 15,4.2], // ★ 放大
         'circle-color':  '#ffffff',
-        'circle-stroke-color':'#000000',
-        'circle-stroke-width': 0.4,
-        'circle-opacity': 0.95,
+        'circle-stroke-color':'#000',
+        'circle-stroke-width': 1.0,
+        'circle-opacity': 1,
         'circle-pitch-alignment':'map'
       }
     });
   }
 }
 
+
 // 產生/重生
 function spawn(n, bbox){
   const [minLon,minLat,maxLon,maxLat] = bbox;
   const trailLen = +document.getElementById('trail').value|0;
 
-  STATE.parts = new Array(n).fill(0).map(()=>({
-    lon: minLon + Math.random()*(maxLon-minLon),
-    lat: minLat + Math.random()*(maxLat-minLat),
-    age: 300 + Math.floor(Math.random()*300),
-    path: []
-  }));
+  const MIN_SPAWN_SPD = 0.6;     // 低於 ~0.6 m/s 不太會動，盡量少放
+  const MAX_TRY = 12;
+
+  STATE.parts = new Array(n).fill(0).map(()=> {
+    let lon, lat, ok=false, tries=0;
+    while(!ok && tries++ < MAX_TRY){
+      lon = minLon + Math.random()*(maxLon-minLon);
+      lat = minLat + Math.random()*(maxLat-minLat);
+      const s = STATE.field?.sample(lon, lat);
+      const spd = s ? Math.hypot(s.u, s.v) : 0;
+      ok = spd >= MIN_SPAWN_SPD;
+    }
+    return { lon, lat, age: 300 + Math.floor(Math.random()*300), path: [] };
+  });
 
   STATE.geoHeads.features = STATE.parts.map((p,idx)=>({
     type:'Feature', properties:{id:idx, spd:0},
@@ -209,23 +230,34 @@ function spawn(n, bbox){
 }
 
 // 積分（RK2 中點）
-function advectRK2(p, dt, field){
-  const s1 = field.sample(p.lon, p.lat); if (!s1) return null;
-  let {u:u1, v:v1} = s1; if (DIR_IS_FROM){u1=-u1; v1=-v1;}
+function advectRK2(p, dtSec, field, gain = 1){
+  const s1 = field.sample(p.lon, p.lat); 
+  if (!s1) return null;
+
+  let {u:u1, v:v1} = s1;                 // m/s
+  if (DIR_IS_FROM){ u1 = -u1; v1 = -v1; }
+  u1 *= gain; v1 *= gain;                // ★ 放大視覺速度
+
   const metersPerDegLat = 111320;
-  const metersPerDegLon = metersPerDegLat * Math.cos(p.lat*Math.PI/180);
-  const dlon1 = (u1*dt)/metersPerDegLon;
-  const dlat1 = (v1*dt)/metersPerDegLat;
+  const metersPerDegLon1 = metersPerDegLat * Math.cos(p.lat * Math.PI/180);
+  const dlon1 = (u1 * dtSec) / metersPerDegLon1;
+  const dlat1 = (v1 * dtSec) / metersPerDegLat;
 
-  const midLon = p.lon + 0.5*dlon1, midLat = p.lat + 0.5*dlat1;
-  const s2 = field.sample(midLon, midLat); if (!s2) return null;
-  let {u:u2, v:v2} = s2; if (DIR_IS_FROM){u2=-u2; v2=-v2;}
-  const metersPerDegLon2 = metersPerDegLat * Math.cos(midLat*Math.PI/180);
-  const dlon = (u2*dt)/metersPerDegLon2;
-  const dlat = (v2*dt)/metersPerDegLat;
+  const midLon = p.lon + 0.5 * dlon1, midLat = p.lat + 0.5 * dlat1;
+  const s2 = field.sample(midLon, midLat); 
+  if (!s2) return null;
 
-  return {lon: p.lon + dlon, lat: p.lat + dlat, spd: Math.hypot(u2,v2)};
+  let {u:u2, v:v2} = s2;
+  if (DIR_IS_FROM){ u2 = -u2; v2 = -v2; }
+  u2 *= gain; v2 *= gain;                // ★ 放大視覺速度
+
+  const metersPerDegLon2 = metersPerDegLat * Math.cos(midLat * Math.PI/180);
+  const dlon = (u2 * dtSec) / metersPerDegLon2;
+  const dlat = (v2 * dtSec) / metersPerDegLat;
+
+  return { lon: p.lon + dlon, lat: p.lat + dlat, spd: Math.hypot(u2,v2) };
 }
+
 
 // 主循環
 function start(){
@@ -233,17 +265,28 @@ function start(){
   const count = +document.getElementById('count').value|0;
   spawn(count, STATE.field.bbox);
 
+  // ★ 立刻送一次資料並確保可見
+  map.getSource(STATE.headSrc).setData(STATE.geoHeads);
+  map.getSource(STATE.trailSrc).setData(STATE.geoTrails);
+  if (map.getLayer(STATE.headLyr))  map.setLayoutProperty(STATE.headLyr,  'visibility', 'visible');
+  if (map.getLayer(STATE.trailLyr)) map.setLayoutProperty(STATE.trailLyr, 'visibility', 'visible');
+
+  console.log('[start] parts:', STATE.parts.length, 'bbox:', STATE.field.bbox);
+
   const tick = ()=>{
     const trailLen = +document.getElementById('trail').value|0;
     const speedMul = +document.getElementById('speed').value;
-    const dt = 0.08 * speedMul; // 秒；可依需求調
+    const dtSec = 0.09;                                   // 每幀「視覺秒數」
+    // 可依縮放做些補償，讓不同 zoom 看起來速度相近（可先用固定 1）
+    const zoomComp = 1; // Math.pow(2, map.getZoom() - 10) * 0.5;
+    const gain = VISUAL_GAIN_BASE * speedMul * zoomComp;  // ★ 這就是放大倍率
 
     const [minLon,minLat,maxLon,maxLat] = STATE.field.bbox;
     const heads = STATE.geoHeads.features, trails = STATE.geoTrails.features;
 
     for (let i=0;i<STATE.parts.length;i++){
       let p = STATE.parts[i];
-      const nxt = advectRK2(p, dt, STATE.field);
+      const nxt = advectRK2(p, dtSec, STATE.field, gain); // ★ 帶入 gain
       if (!nxt ||
           nxt.lon<minLon || nxt.lon>maxLon || nxt.lat<minLat || nxt.lat>maxLat ||
           --p.age<=0) {
@@ -259,21 +302,26 @@ function start(){
         continue;
       }
 
-      // 前進
+      // 只有真的有移動才加到尾跡，避免重複點
+      const dx = nxt.lon - p.lon, dy = nxt.lat - p.lat;
+      const moved = Math.abs(dx) + Math.abs(dy);
       p.lon = nxt.lon; p.lat = nxt.lat;
+
       heads[i].properties.spd = nxt.spd;
       heads[i].geometry.coordinates = [p.lon, p.lat];
 
-      // 尾跡
-      p.path.push([p.lon, p.lat]);
-      if (p.path.length>trailLen) p.path.shift();
-      trails[i].properties.spd = nxt.spd;
-      trails[i].geometry.coordinates = p.path;
+      if (moved > 1e-7) {                 // ★ 約 10^-7 度 ≈ 幾公尺
+        p.path.push([p.lon, p.lat]);
+        if (p.path.length>trailLen) p.path.shift();
+        trails[i].properties.spd = nxt.spd;
+        trails[i].geometry.coordinates = p.path;
+      }
     }
 
     map.getSource(STATE.headSrc).setData(STATE.geoHeads);
     map.getSource(STATE.trailSrc).setData(STATE.geoTrails);
   };
+
 
   // 以 setInterval 控 FPS（更穩定）
   STATE.timer = setInterval(tick, 90);
