@@ -105,8 +105,14 @@ const SURF_COUNT_DEFAULT = 15000;
 // 資料是否為「來向」(from)；false 表示直接用「去向」
 const DIR_IS_FROM = false;
 // 重生策略：部分均勻、部分偏向微有風處（避免把弱風區抽空）
-const SPAWN_UNIFORM_RATIO = 0.80; // 40% 完全均勻
-const BREEZE_TH = 0.10;           // 視為「微有風」的門檻 (m/s)
+const SPAWN_UNIFORM_RATIO = 0.90; // 90% 完全均勻
+const BREEZE_TH = 0.0001;           // 視為「微有風」的門檻 (m/s)
+const AGE_MIN   = 50;  // 最短壽命（幀）：數字越小 → 越快重生
+const AGE_MAX   = 360;  // 最長壽命（幀）
+const AGE_DECAY = 50;    // 每幀扣多少壽命：越大 → 越快重生
+const RESPAWN_PULSE_EVERY_MS = 1000; // 每隔幾毫秒觸發一次
+const RESPAWN_PULSE_RATIO    = 0.5; // 每次重生的比例（50%）
+
 
 
 // 面板開/關
@@ -495,7 +501,7 @@ function respawnOne(p, bbox){
     }
     p.lon = lon; p.lat = lat;
   }
-  p.age = 300 + Math.floor(Math.random()*300);
+  p.age = AGE_MIN + Math.floor(Math.random() * (AGE_MAX - AGE_MIN));
   p.path.length = 0;
 }
 
