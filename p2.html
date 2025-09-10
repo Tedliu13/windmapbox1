@@ -98,10 +98,15 @@ const STYLE_URL = 'mapbox://styles/tedliu/cm0qicaza00mf01pwfsfj3qgx';
 
 // 視覺速度倍率（越大越快）
 const VISUAL_GAIN_BASE = 2000; 
+// 每幀「經緯度」最大位移，避免一步跨出格網（數值可再微調）
+const MAX_STEP_DEG = 0.005;
 // 顆數預設（也會由面板同步）
 const SURF_COUNT_DEFAULT = 15000;
 // 資料是否為「來向」(from)；false 表示直接用「去向」
 const DIR_IS_FROM = false;
+// 重生策略：部分均勻、部分偏向微有風處（避免把弱風區抽空）
+const SPAWN_UNIFORM_RATIO = 0.80; // 40% 完全均勻
+const BREEZE_TH = 0.10;           // 視為「微有風」的門檻 (m/s)
 
 
 // 面板開/關
@@ -356,17 +361,29 @@ async function loadUV(url){
     return a0 + ty*(a1-a0);
   }
   function sample(lon,lat){ // 回 {u,v} (m/s)，越界回 null
+    const {nx, ny, lo1, la1, dx, dy} = h; // 若你沒 h，就把這行改回你原來取 header 的寫法
     const x=(lon-lo1)/dx - 0.5, y=(la1-lat)/dy - 0.5;
     if (x<0 || y<0 || x>nx-1 || y>ny-1) return null;
+
     const i0=Math.floor(x), j0=Math.floor(y);
     const i1=Math.min(i0+1,nx-1), j1=Math.min(j0+1,ny-1);
     const tx=x-i0, ty=y-j0;
     const idx=(jj,ii)=> jj*nx+ii;
 
-    const u=bilerp(U[idx(j0,i0)],U[idx(j0,i1)],U[idx(j1,i0)],U[idx(j1,i1)], tx,ty);
-    const v=bilerp(V[idx(j0,i0)],V[idx(j0,i1)],V[idx(j1,i0)],V[idx(j1,i1)], tx,ty); // 注意：v11索引
+    // 正確的四角順序：(j0,i0) (j0,i1) (j1,i0) (j1,i1)
+    const u = bilerp(
+      U[idx(j0,i0)], U[idx(j0,i1)],
+      U[idx(j1,i0)], U[idx(j1,i1)],
+      tx, ty
+    );
+    const v = bilerp(
+      V[idx(j0,i0)], V[idx(j0,i1)],
+      V[idx(j1,i0)], V[idx(j1,i1)],
+      tx, ty
+    );
     return {u, v};
   }
+
   return { header:h, bbox, sample };
 }
 
@@ -417,20 +434,34 @@ function ensureLayers(){
 // 產生/重生
 function spawn(n, bbox){
   const [minLon,minLat,maxLon,maxLat] = bbox;
-  const MIN_SPAWN_SPD = 0.001;     // 太小會看不出動，優先避開
-  const MAX_TRY = 12;
+  const rndLon = ()=> minLon + Math.random()*(maxLon-minLon);
+  const rndLat = ()=> minLat + Math.random()*(maxLat-minLat);
 
-  STATE.parts = new Array(n).fill(0).map(()=> {
-    let lon, lat, ok=false, tries=0;
-    while(!ok && tries++ < MAX_TRY){
-      lon = minLon + Math.random()*(maxLon-minLon);
-      lat = minLat + Math.random()*(maxLat-minLat);
+  const nUniform = Math.round(n * SPAWN_UNIFORM_RATIO);
+  const nBreeze  = n - nUniform;
+  const MAX_TRY  = 12;
+
+  const parts = [];
+
+  // ① 均勻投點：保證弱風區也會被覆蓋
+  for (let i=0;i<nUniform;i++){
+    parts.push({ lon:rndLon(), lat:rndLat(), age: 400 + (Math.random()*400|0), path:[] });
+  }
+
+  // ② 微有風投點：讓「有風處」視覺更連續，但不會抽空弱風區
+  for (let i=0;i<nBreeze;i++){
+    let lon=rndLon(), lat=rndLat();
+    for (let k=0;k<MAX_TRY;k++){
+      lon=rndLon(); lat=rndLat();
       const s = STATE.field?.sample(lon, lat);
       const spd = s ? Math.hypot(s.u, s.v) : 0;
-      ok = spd >= MIN_SPAWN_SPD;
+      if (spd >= BREEZE_TH) break;       // 達到「微有風」就用這點
+      if (k===MAX_TRY-1){ /* 退回最後一次（均勻） */ }
     }
-    return { lon, lat, age: 300 + Math.floor(Math.random()*300), path: [] };
-  });
+    parts.push({ lon, lat, age: 400 + (Math.random()*400|0), path:[] });
+  }
+
+  STATE.parts = parts;
 
   STATE.geoHeads.features = STATE.parts.map((p,idx)=>({
     type:'Feature', properties:{id:idx, spd:0},
@@ -445,32 +476,64 @@ function spawn(n, bbox){
   map.getSource(STATE.trailSrc).setData(STATE.geoTrails);
 }
 
+function respawnOne(p, bbox){
+  const [minLon,minLat,maxLon,maxLat] = bbox;
+  const rndLon = ()=> minLon + Math.random()*(maxLon-minLon);
+  const rndLat = ()=> minLat + Math.random()*(maxLat-minLat);
+  const MAX_TRY = 12;
+
+  // 依照比例決定這顆用均勻或微有風
+  if (Math.random() < SPAWN_UNIFORM_RATIO){
+    p.lon = rndLon(); p.lat = rndLat();
+  } else {
+    let lon=rndLon(), lat=rndLat();
+    for (let k=0;k<MAX_TRY;k++){
+      lon=rndLon(); lat=rndLat();
+      const s = STATE.field?.sample(lon, lat);
+      const spd = s ? Math.hypot(s.u, s.v) : 0;
+      if (spd >= BREEZE_TH) break;
+    }
+    p.lon = lon; p.lat = lat;
+  }
+  p.age = 300 + Math.floor(Math.random()*300);
+  p.path.length = 0;
+}
+
+
+
 // 積分（RK2 中點）
+const VISUAL_MIN_SPD = 0.20; // m/s 以下視覺強制當 0.2 m/s（僅視覺用途）
 function advectRK2(p, dtSec, field, gain = 1){
-  const s1 = field.sample(p.lon, p.lat); 
-  if (!s1) return null;
+  const s1 = field.sample(p.lon, p.lat); if (!s1) return null;
+  let {u:u1, v:v1} = s1;
+  if (DIR_IS_FROM){ u1=-u1; v1=-v1; }
+  const sp1 = Math.hypot(u1,v1);
+  if (sp1>0 && sp1 < VISUAL_MIN_SPD){ const s = VISUAL_MIN_SPD/sp1; u1*=s; v1*=s; }
+  u1 *= gain; v1 *= gain;
 
-  let {u:u1, v:v1} = s1;                 // m/s
-  if (DIR_IS_FROM){ u1 = -u1; v1 = -v1; }
-  u1 *= gain; v1 *= gain;                // 視覺放大
+  const mPerDegLat = 111320;
+  const mPerDegLon1 = mPerDegLat * Math.cos(p.lat*Math.PI/180);
+  let dlon1 = (u1 * dtSec) / mPerDegLon1;
+  let dlat1 = (v1 * dtSec) / mPerDegLat;
 
-  const metersPerDegLat = 111320;
-  const metersPerDegLon1 = metersPerDegLat * Math.cos(p.lat * Math.PI/180);
-  const dlon1 = (u1 * dtSec) / metersPerDegLon1;
-  const dlat1 = (v1 * dtSec) / metersPerDegLat;
-
-  const midLon = p.lon + 0.5 * dlon1, midLat = p.lat + 0.5 * dlat1;
-  const s2 = field.sample(midLon, midLat); 
-  if (!s2) return null;
-
+  const midLon = p.lon + 0.5*dlon1, midLat = p.lat + 0.5*dlat1;
+  const s2 = field.sample(midLon, midLat); if (!s2) return null;
   let {u:u2, v:v2} = s2;
-  if (DIR_IS_FROM){ u2 = -u2; v2 = -v2; }
+  if (DIR_IS_FROM){ u2=-u2; v2=-v2; }
+  const sp2 = Math.hypot(u2,v2);
+  if (sp2>0 && sp2 < VISUAL_MIN_SPD){ const s = VISUAL_MIN_SPD/sp2; u2*=s; v2*=s; }
   u2 *= gain; v2 *= gain;
 
-  const metersPerDegLon2 = metersPerDegLat * Math.cos(midLat * Math.PI/180);
-  const dlon = (u2 * dtSec) / metersPerDegLon2;
-  const dlat = (v2 * dtSec) / metersPerDegLat;
+  const mPerDegLon2 = mPerDegLat * Math.cos(midLat*Math.PI/180);
+  let dlon = (u2 * dtSec) / mPerDegLon2;
+  let dlat = (v2 * dtSec) / mPerDegLat;
 
+  // ★ 單步上限，避免越界導致每幀重生「看起來不動」
+  const stepMax = Math.max(Math.abs(dlon), Math.abs(dlat));
+  if (stepMax > MAX_STEP_DEG){
+    const s = MAX_STEP_DEG / stepMax;
+    dlon *= s; dlat *= s;
+  }
   return { lon: p.lon + dlon, lat: p.lat + dlat, spd: Math.hypot(u2,v2) };
 }
 
@@ -486,6 +549,7 @@ function start(){
   if (map.getLayer(STATE.headLyr))  map.setLayoutProperty(STATE.headLyr,  'visibility', 'visible');
   if (map.getLayer(STATE.trailLyr)) map.setLayoutProperty(STATE.trailLyr, 'visibility', 'visible');
 
+  let _dbgTicks = 0, _dbgT0 = performance.now();
   const tick = ()=>{
     const trailLen = +document.getElementById('trail').value|0;
     const speedMul = +document.getElementById('speed').value;
@@ -499,14 +563,11 @@ function start(){
     for (let i=0;i<STATE.parts.length;i++){
       let p = STATE.parts[i];
       const nxt = advectRK2(p, dtSec, STATE.field, gain);
+      //// 在 tick() 裡原本的重生處改成：
       if (!nxt ||
           nxt.lon<minLon || nxt.lon>maxLon || nxt.lat<minLat || nxt.lat>maxLat ||
           --p.age<=0) {
-        // 重生
-        p.lon = minLon + Math.random()*(maxLon-minLon);
-        p.lat = minLat + Math.random()*(maxLat-minLat);
-        p.age = 300 + Math.floor(Math.random()*300);
-        p.path.length = 0;
+        respawnOne(p, STATE.field.bbox);   // ← 用我之前給你的混合式重生
         heads[i].properties.spd = 0;
         heads[i].geometry.coordinates = [p.lon,p.lat];
         trails[i].properties.spd = 0;
@@ -514,15 +575,16 @@ function start(){
         continue;
       }
 
+
       // 只有真的有移動才加到尾跡，避免重複點
-      const dx = nxt.lon - p.lon, dy = nxt.lat - p.lat;
-      const moved = Math.abs(dx) + Math.abs(dy);
+      const dx = nxt.lon - p.lon, dy = nxt.lat - p.lat;      // ★
+      const moved = Math.abs(dx) + Math.abs(dy);             // ★
       p.lon = nxt.lon; p.lat = nxt.lat;
 
       heads[i].properties.spd = nxt.spd;
       heads[i].geometry.coordinates = [p.lon, p.lat];
 
-      if (moved > 1e-7) {
+      if (moved > 5e-9) { // 原本 1e-7 → 放寬到 5e-9（或 1e-8），讓弱風也會畫線
         p.path.push([p.lon, p.lat]);
         if (p.path.length>trailLen) p.path.shift();
         trails[i].properties.spd = nxt.spd;
