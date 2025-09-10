@@ -13,24 +13,10 @@
          font:14px/1.5 system-ui,"Noto Sans TC";}
   .row{display:grid;grid-template-columns:92px 160px 52px;gap:8px;align-items:center;margin:6px 0}
   .row output{text-align:right;opacity:.8}
-
-  /* 右側模式地形圖例 */
-  .legend{position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:5;
-          background:rgba(255,255,255,.92);padding:8px;border-radius:10px;
-          box-shadow:0 8px 20px rgba(0,0,0,.15)}
-  .legend img{display:block;max-height:33vh;max-width:28vw;height:auto;width:auto}
-  @media (max-width:640px){
-    .legend img{max-height:24vh;max-width:40vw}
-  }
 </style>
 </head>
 <body>
 <div id="map"></div>
-
-<!-- 模式地形圖例（預設隱藏，由「模式地形」勾選控制） -->
-<div id="terrainLegend" class="legend" style="display:none;">
-  <img src="terrain_legend.png" alt="模式地形圖例">
-</div>
 
 <div class="panel">
   <div style="font-weight:700;margin-bottom:6px">風場切換</div>
@@ -57,32 +43,28 @@
     <input id="trail" type="range" min="2" max="10" step="1" value="5">
     <output id="trailV">5</output>
   </div>
-
-  <div style="font-weight:700;margin:8px 0 2px">圖層</div>
-  <div>
-    <label><input type="checkbox" id="chkTerrain"> 模式地形</label>
-    <label style="margin-left:12px"><input type="checkbox" id="chkCounty"> 縣市邊界</label>
-  </div>
 </div>
 
 <script>
 mapboxgl.accessToken = 'pk.eyJ1IjoidGVkbGl1IiwiYSI6ImNtMHAxMjdveDAwZWUya29sanY1c3Btc2EifQ.dGpYV4RZ4-OcpITjSKfcfg';
 const STYLE_URL = 'mapbox://styles/tedliu/cm0qicaza00mf01pwfsfj3qgx';
 
-// 視覺速度倍率（越大越快）
+// 視覺速度倍率：越大移動越明顯（建議 60~140）
 const VISUAL_GAIN_BASE = 2000; 
-// 顆數預設（也會由面板同步）
-const SURF_COUNT_DEFAULT = 15000;
-// 資料是否為「來向」(from)；false 表示直接用「去向」
-const DIR_IS_FROM = false;
+// 顆數預設
+const SURF_COUNT_DEFAULT = 15000;   // 原本 1200 → 2400
+// 如果你有面板 slider，初始值一起改：<input id="count" ... value="2400">
 
-// ---- 風場檔 ----
+
+
+// ---- 四份 native 風場檔 ----
 const FILES = {
   DJF_day:   'wind_DJF_day_native.json',
   DJF_night: 'wind_DJF_night_native.json',
   JJA_day:   'wind_JJA_day_native.json',
   JJA_night: 'wind_JJA_night_native.json'
 };
+const DIR_IS_FROM = false; // 你的 native 角度/向量是「來向」，演算法會自動轉成「去向」
 
 // ---- 地圖 ----
 const map = new mapboxgl.Map({
@@ -100,12 +82,10 @@ map.setMaxZoom(14);
 map.on('style.load', async () => {
   enableTerrain();
   ensureLayers();
-  await map.once('idle');                // 等樣式穩定
-  await addModelTerrain();               // 模式地形（image source + raster layer，預設隱藏）
-  await addCountyBoundaries();           // 縣市邊界（line），預設隱藏
-  bindLayerToggles();                    // 勾選框控制顯示/隱藏
-  loadFieldAndStart(currentKey());       // 啟動風場貼地流線
+  await map.once('idle');                // ★ 等地圖層級架好
+  loadFieldAndStart(currentKey());
 });
+
 
 // 啟用 3D 地形
 function enableTerrain(){
@@ -115,141 +95,6 @@ function enableTerrain(){
     map.setTerrain({ source: demEntry[0], exaggeration: 4 });
     if (!map.getLayer('sky')) map.addLayer({ id:'sky', type:'sky', paint:{'sky-type':'atmosphere'} });
   }
-}
-
-// 取得一個 beforeId，保證把 overlay 放在「最後一個基底 raster/hillshade」的後面
-function getOverlayAnchorId() {
-  const layers = map.getStyle().layers;
-  let lastBase = -1;
-  for (let i = 0; i < layers.length; i++) {
-    const L = layers[i];
-    // 視為底圖的類型：raster（衛星/影像）、hillshade（陰影）
-    if (L.type === 'raster' || L.type === 'hillshade') {
-      // 排除我們自己要加的 terrain-img（第一次呼叫時通常還不存在，但保險寫一下）
-      if (L.id !== 'terrain-img') lastBase = i;
-    }
-  }
-  // 回傳「最後一個基底圖層的下一層」作為 beforeId
-  return layers[lastBase + 1]?.id; // 可能是某個道路/水系/標籤圖層
-}
-
-
-// 取代原本的 addModelTerrain()
-async function addModelTerrain(){
-  if (map.getSource('terrain-img')) return;
-  try {
-    const jb = await fetch('terrain_bounds.json', {cache:'no-cache'}).then(r=>r.json());
-    let corners; // 要餵給 image source 的四角座標：[ [tl],[tr],[br],[bl] ]
-
-    // ★ 你的檔案長這樣：{ topleft:[lat,lon], topright:[lat,lon], bottomright:[lat,lon], bottomleft:[lat,lon] }
-    if (jb && jb.topleft && jb.topright && jb.bottomright && jb.bottomleft) {
-      const tl = [ jb.topleft[1],      jb.topleft[0]      ]; // [lon,lat]
-      const tr = [ jb.topright[1],     jb.topright[0]     ];
-      const br = [ jb.bottomright[1],  jb.bottomright[0]  ];
-      const bl = [ jb.bottomleft[1],   jb.bottomleft[0]   ];
-      corners = [tl, tr, br, bl];
-    } else {
-      // 其他相容格式：[[tl],[tr],[br],[bl]] 或 bbox {minLon,minLat,maxLon,maxLat} / {west,east,south,north}
-      const b = jb.bounds || jb;
-      if (Array.isArray(b) && b.length===4 && Array.isArray(b[0])) {
-        corners = b;
-      } else {
-        const minLon = b.minLon ?? b.minX ?? b.west ?? b.w;
-        const minLat = b.minLat ?? b.minY ?? b.south ?? b.s;
-        const maxLon = b.maxLon ?? b.maxX ?? b.east ?? b.e;
-        const maxLat = b.maxLat ?? b.maxY ?? b.north ?? b.n;
-        if ([minLon,minLat,maxLon,maxLat].some(v => typeof v !== 'number')) {
-          throw new Error('Unsupported terrain_bounds.json schema');
-        }
-        corners = [
-          [minLon, maxLat], // tl
-          [maxLon, maxLat], // tr
-          [maxLon, minLat], // br
-          [minLon, minLat]  // bl
-        ];
-      }
-    }
-
-    map.addSource('terrain-img', {
-      type: 'image',
-      url: 'terrain_land_only.png',
-      coordinates: corners
-    });
-
-    const beforeId = getOverlayAnchorId();   // ★ 取得定位點
-    map.addLayer({
-      id: 'terrain-img',
-      type: 'raster',
-      source: 'terrain-img',
-      layout: { visibility: 'none' },        // 預設由面板控制
-      paint: { 'raster-opacity': 0.85, 'raster-resampling': 'nearest' },
-      slot: 'middle'                          // 不是 top，避免壓住你的自訂圖層
-    }, beforeId);
-
-  } catch(e){
-    console.error('[terrain-img]', e);
-  }
-}
-
-
-// 縣市邊界（兩層：外黑內白）
-async function addCountyBoundaries(){
-  if (!map.getSource('tw-counties')) {
-    try {
-      const data = await fetch('taiwan_county.geojson', {cache:'no-cache'}).then(r=>{
-        if(!r.ok) throw new Error('HTTP '+r.status);
-        return r.json();
-      });
-      map.addSource('tw-counties', { type:'geojson', data });
-    } catch(e){
-      console.error('[counties] 載入失敗', e);
-      return;
-    }
-  }
-  if (!map.getLayer('county-casing')) {
-    map.addLayer({
-      id:'county-casing',
-      type:'line',
-      source:'tw-counties',
-      slot:'top',
-      layout:{ visibility:'none', 'line-join':'round','line-cap':'round' },
-      paint:{
-        'line-color':'rgba(0,0,0,.55)',
-        'line-width':['interpolate',['linear'],['zoom'], 6,0.8, 9,1.4, 12,2.2, 14,2.8]
-      }
-    });
-  }
-  if (!map.getLayer('county-outline')) {
-    map.addLayer({
-      id:'county-outline',
-      type:'line',
-      source:'tw-counties',
-      slot:'top',
-      layout:{ visibility:'none', 'line-join':'round','line-cap':'round' },
-      paint:{
-        'line-color':'#ffffff',
-        'line-width':['interpolate',['linear'],['zoom'], 6,0.5, 9,1.2, 12,1.8, 14,2.4]
-      }
-    });
-  }
-}
-
-// 勾選框控制
-function bindLayerToggles(){
-  const chkTerrain = document.getElementById('chkTerrain');
-  const chkCounty = document.getElementById('chkCounty');
-  if (chkTerrain) chkTerrain.addEventListener('change', ()=>{
-    const vis = chkTerrain.checked ? 'visible' : 'none';
-    if (map.getLayer('terrain-img')) map.setLayoutProperty('terrain-img','visibility', vis);
-    const leg = document.getElementById('terrainLegend');
-    if (leg) leg.style.display = chkTerrain.checked ? 'block' : 'none';
-  });
-  if (chkCounty) chkCounty.addEventListener('change', ()=>{
-    const vis = chkCounty.checked ? 'visible' : 'none';
-    ['county-casing','county-outline'].forEach(id=>{
-      if (map.getLayer(id)) map.setLayoutProperty(id,'visibility', vis);
-    });
-  });
 }
 
 // ---- UI ----
@@ -298,7 +143,7 @@ async function loadUV(url){
     const idx=(jj,ii)=> jj*nx+ii;
 
     const u=bilerp(U[idx(j0,i0)],U[idx(j0,i1)],U[idx(j1,i0)],U[idx(j1,i1)], tx,ty);
-    const v=bilerp(V[idx(j0,i0)],V[idx(j0,i1)],V[idx(j1,i0)],V[idx(j1,i1)], tx,ty); // 注意：v11索引
+    const v=bilerp(V[idx(j0,i0)],V[idx(j0,i1)],V[idx(j1,i0)],V[idx(j1,i1)], tx,ty);
     return {u, v};
   }
   return { header:h, bbox, sample };
@@ -323,11 +168,12 @@ function ensureLayers(){
 
   if (!map.getLayer(STATE.trailLyr)){
     map.addLayer({
-      id: STATE.trailLyr, type:'line', source: STATE.trailSrc, slot:'top',
+      id: STATE.trailLyr, type:'line', source: STATE.trailSrc,
+      slot: 'top',                 // ★ 放最上層（Mapbox GL JS v3）
       paint:{
         'line-color': ['interpolate',['linear'],['get','spd'],
           0,'#ffffff', 2,'#ffffff', 5,'#ffffff', 8,'#ffffff', 12,'#ffffff', 20,'#ffffff'],
-        'line-width': 0.8,
+        'line-width': 0.8,         // ★ 先放大，容易看到
         'line-opacity': 0.9
       },
       layout:{ 'line-cap':'round','line-join':'round' }
@@ -335,9 +181,10 @@ function ensureLayers(){
   }
   if (!map.getLayer(STATE.headLyr)){
     map.addLayer({
-      id: STATE.headLyr, type:'circle', source: STATE.headSrc, slot:'top',
+      id: STATE.headLyr, type:'circle', source: STATE.headSrc,
+      slot: 'top',                 // ★ 放最上層
       paint:{
-        'circle-radius': ['interpolate',['linear'],['zoom'], 9,0.6, 12,0.6, 15,0.6],
+        'circle-radius': ['interpolate',['linear'],['zoom'], 9,0.6, 12,0.6, 15,0.6], // ★ 放大
         'circle-color':  '#ffffff',
         'circle-stroke-color':'#ffffff',
         'circle-stroke-width': 0.6,
@@ -348,10 +195,13 @@ function ensureLayers(){
   }
 }
 
+
 // 產生/重生
 function spawn(n, bbox){
   const [minLon,minLat,maxLon,maxLat] = bbox;
-  const MIN_SPAWN_SPD = 0.05;     // 太小會看不出動，優先避開
+  const trailLen = +document.getElementById('trail').value|0;
+
+  const MIN_SPAWN_SPD = 0.01;     // 低於 ~0.6 m/s 不太會動，盡量少放
   const MAX_TRY = 12;
 
   STATE.parts = new Array(n).fill(0).map(()=> {
@@ -386,7 +236,7 @@ function advectRK2(p, dtSec, field, gain = 1){
 
   let {u:u1, v:v1} = s1;                 // m/s
   if (DIR_IS_FROM){ u1 = -u1; v1 = -v1; }
-  u1 *= gain; v1 *= gain;                // 視覺放大
+  u1 *= gain; v1 *= gain;                // ★ 放大視覺速度
 
   const metersPerDegLat = 111320;
   const metersPerDegLon1 = metersPerDegLat * Math.cos(p.lat * Math.PI/180);
@@ -399,7 +249,7 @@ function advectRK2(p, dtSec, field, gain = 1){
 
   let {u:u2, v:v2} = s2;
   if (DIR_IS_FROM){ u2 = -u2; v2 = -v2; }
-  u2 *= gain; v2 *= gain;
+  u2 *= gain; v2 *= gain;                // ★ 放大視覺速度
 
   const metersPerDegLon2 = metersPerDegLat * Math.cos(midLat * Math.PI/180);
   const dlon = (u2 * dtSec) / metersPerDegLon2;
@@ -408,31 +258,35 @@ function advectRK2(p, dtSec, field, gain = 1){
   return { lon: p.lon + dlon, lat: p.lat + dlat, spd: Math.hypot(u2,v2) };
 }
 
+
 // 主循環
 function start(){
   stop();
   const count = +document.getElementById('count').value|0;
   spawn(count, STATE.field.bbox);
 
-  // 立刻送一次資料並確保可見
+  // ★ 立刻送一次資料並確保可見
   map.getSource(STATE.headSrc).setData(STATE.geoHeads);
   map.getSource(STATE.trailSrc).setData(STATE.geoTrails);
   if (map.getLayer(STATE.headLyr))  map.setLayoutProperty(STATE.headLyr,  'visibility', 'visible');
   if (map.getLayer(STATE.trailLyr)) map.setLayoutProperty(STATE.trailLyr, 'visibility', 'visible');
 
+  console.log('[start] parts:', STATE.parts.length, 'bbox:', STATE.field.bbox);
+
   const tick = ()=>{
     const trailLen = +document.getElementById('trail').value|0;
     const speedMul = +document.getElementById('speed').value;
-    const dtSec = 0.09;
-    const zoomComp = 1;
-    const gain = VISUAL_GAIN_BASE * speedMul * zoomComp;
+    const dtSec = 0.09;                                   // 每幀「視覺秒數」
+    // 可依縮放做些補償，讓不同 zoom 看起來速度相近（可先用固定 1）
+    const zoomComp = 1; // Math.pow(2, map.getZoom() - 10) * 0.5;
+    const gain = VISUAL_GAIN_BASE * speedMul * zoomComp;  // ★ 這就是放大倍率
 
     const [minLon,minLat,maxLon,maxLat] = STATE.field.bbox;
     const heads = STATE.geoHeads.features, trails = STATE.geoTrails.features;
 
     for (let i=0;i<STATE.parts.length;i++){
       let p = STATE.parts[i];
-      const nxt = advectRK2(p, dtSec, STATE.field, gain);
+      const nxt = advectRK2(p, dtSec, STATE.field, gain); // ★ 帶入 gain
       if (!nxt ||
           nxt.lon<minLon || nxt.lon>maxLon || nxt.lat<minLat || nxt.lat>maxLat ||
           --p.age<=0) {
@@ -456,7 +310,7 @@ function start(){
       heads[i].properties.spd = nxt.spd;
       heads[i].geometry.coordinates = [p.lon, p.lat];
 
-      if (moved > 1e-7) {
+      if (moved > 1e-7) {                 // ★ 約 10^-7 度 ≈ 幾公尺
         p.path.push([p.lon, p.lat]);
         if (p.path.length>trailLen) p.path.shift();
         trails[i].properties.spd = nxt.spd;
@@ -468,8 +322,10 @@ function start(){
     map.getSource(STATE.trailSrc).setData(STATE.geoTrails);
   };
 
-  // FPS
+
+  // 以 setInterval 控 FPS（更穩定）
   STATE.timer = setInterval(tick, 90);
+  // 拖地圖時先暫停、結束再恢復（更順眼）
   map.on('dragstart.zoomstart', stop);
   map.on('dragend.zoomend', ()=>{ if(!STATE.timer) STATE.timer=setInterval(tick,90); });
 }
