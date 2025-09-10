@@ -201,7 +201,7 @@ function spawn(n, bbox){
   const [minLon,minLat,maxLon,maxLat] = bbox;
   const trailLen = +document.getElementById('trail').value|0;
 
-  const MIN_SPAWN_SPD = 0.05;     // 低於 ~0.6 m/s 不太會動，盡量少放
+  const MIN_SPAWN_SPD = 0.01;     // 低於 ~0.6 m/s 不太會動，盡量少放
   const MAX_TRY = 12;
 
   STATE.parts = new Array(n).fill(0).map(()=> {
