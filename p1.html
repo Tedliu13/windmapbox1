@@ -30,13 +30,13 @@
   <div style="font-weight:700;margin:8px 0 2px">參數</div>
   <div class="row">
     <label>粒子數</label>
-    <input id="count" type="range" min="400" max="3000" step="100" value="1200">
-    <output id="countV">1200</output>
+    <input id="count" type="range" min="4000" max="40000" step="1000" value="15000">
+    <output id="countV">15000</output>
   </div>
   <div class="row">
     <label>速度倍率</label>
-    <input id="speed" type="range" min="0.2" max="1.8" step="0.05" value="0.9">
-    <output id="speedV">0.90</output>
+    <input id="speed" type="range" min="0.8" max="2" step="0.1" value="1">
+    <output id="speedV">1</output>
   </div>
   <div class="row">
     <label>尾跡長度</label>
@@ -50,9 +50,9 @@ mapboxgl.accessToken = 'pk.eyJ1IjoidGVkbGl1IiwiYSI6ImNtMHAxMjdveDAwZWUya29sanY1c
 const STYLE_URL = 'mapbox://styles/tedliu/cm0qicaza00mf01pwfsfj3qgx';
 
 // 視覺速度倍率：越大移動越明顯（建議 60~140）
-const VISUAL_GAIN_BASE = 3000; 
+const VISUAL_GAIN_BASE = 2000; 
 // 顆數預設
-const SURF_COUNT_DEFAULT = 2400;   // 原本 1200 → 2400
+const SURF_COUNT_DEFAULT = 15000;   // 原本 1200 → 2400
 // 如果你有面板 slider，初始值一起改：<input id="count" ... value="2400">
 
 
@@ -70,13 +70,13 @@ const DIR_IS_FROM = false; // 你的 native 角度/向量是「來向」，演�
 const map = new mapboxgl.Map({
   container: 'map',
   style: STYLE_URL,
-  center: [121.0, 23.6],
-  zoom: 9.2,
-  pitch: 60,
+  center: [121.0, 23.4],
+  zoom: 8.5,
+  pitch: 45,
   bearing: -8,
   antialias: true
 });
-map.setMinZoom(8);
+map.setMinZoom(7);
 map.setMaxZoom(14);
 
 map.on('style.load', async () => {
@@ -172,8 +172,8 @@ function ensureLayers(){
       slot: 'top',                 // ★ 放最上層（Mapbox GL JS v3）
       paint:{
         'line-color': ['interpolate',['linear'],['get','spd'],
-          0,'#ffffff', 2,'#ffd280', 5,'#7ed3ff', 8,'#44b9e6', 12,'#2b82cc', 20,'#1e4a9e'],
-        'line-width': 2.0,         // ★ 先放大，容易看到
+          0,'#ffffff', 2,'#ffffff', 5,'#ffffff', 8,'#ffffff', 12,'#ffffff', 20,'#ffffff'],
+        'line-width': 0.8,         // ★ 先放大，容易看到
         'line-opacity': 0.9
       },
       layout:{ 'line-cap':'round','line-join':'round' }
@@ -184,10 +184,10 @@ function ensureLayers(){
       id: STATE.headLyr, type:'circle', source: STATE.headSrc,
       slot: 'top',                 // ★ 放最上層
       paint:{
-        'circle-radius': ['interpolate',['linear'],['zoom'], 9,3, 12,3.5, 15,4.2], // ★ 放大
+        'circle-radius': ['interpolate',['linear'],['zoom'], 9,0.6, 12,0.6, 15,0.6], // ★ 放大
         'circle-color':  '#ffffff',
-        'circle-stroke-color':'#000',
-        'circle-stroke-width': 1.0,
+        'circle-stroke-color':'#ffffff',
+        'circle-stroke-width': 0.6,
         'circle-opacity': 1,
         'circle-pitch-alignment':'map'
       }
@@ -201,7 +201,7 @@ function spawn(n, bbox){
   const [minLon,minLat,maxLon,maxLat] = bbox;
   const trailLen = +document.getElementById('trail').value|0;
 
-  const MIN_SPAWN_SPD = 0.6;     // 低於 ~0.6 m/s 不太會動，盡量少放
+  const MIN_SPAWN_SPD = 0.05;     // 低於 ~0.6 m/s 不太會動，盡量少放
   const MAX_TRY = 12;
 
   STATE.parts = new Array(n).fill(0).map(()=> {
