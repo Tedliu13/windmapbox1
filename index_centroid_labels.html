@@ -91,6 +91,7 @@
 
 
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 </head>
 <body>
 <div id="map"></div>
@@ -736,30 +737,46 @@
   async function addCountyBoundaries() {
     if (!map.getSource('tw-counties')) {
       map.addSource('tw-counties', { type: 'geojson', data: 'taiwan_county.geojson' });
-    // 加上縣市名稱標籤（symbol）
-    if (!map.getLayer('county-label')) {
-      map.addLayer({
-        id: 'county-label',
-        type: 'symbol',
-        source: 'tw-counties',
-        layout: {
-          // 盡量相容不同欄位名稱：COUNTYNAME / name / COUNTY
-          'text-field': ['coalesce', ['get','COUNTYNAME'], ['get','name'], ['get','COUNTY']],
-          'text-font': ['Noto Sans Regular', 'Arial Unicode MS Regular'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 6, 24, 10, 30, 13, 40],
-          'text-allow-overlap': false,
-          'text-ignore-placement': false,
-          'visibility': 'none'
-        },
-        paint: {
-          'text-color': '#222',
-          'text-halo-color': 'rgba(255,255,255,0.95)',
-          'text-halo-width': 1.5
-        }
-      });
     }
-
-    }
+  // 以 centroid 單點顯示縣市名稱，避免同一縣市在多個圖磚重覆標籤
+try {
+  const gj = await fetch('taiwan_county.geojson').then(r => r.json());
+  const features = (gj.features || []).map(f => {
+    const c = turf.centerOfMass(f); // 比 centroid 更穩定的中心點
+    c.properties = c.properties || {};
+    c.properties.COUNTYNAME = f.properties?.COUNTYNAME ?? f.properties?.name ?? f.properties?.COUNTY ?? '';
+    return c;
+  });
+  const centroids = { type:'FeatureCollection', features };
+  if (!map.getSource('tw-county-centroids')) {
+    map.addSource('tw-county-centroids', { type:'geojson', data: centroids });
+  }
+  if (!map.getLayer('county-label-pts')) {
+    map.addLayer({
+      id: 'county-label-pts',
+      type: 'symbol',
+      source: 'tw-county-centroids',
+      layout: {
+        'text-field': ['get','COUNTYNAME'],
+        'text-font': ['Noto Sans Regular', 'Arial Unicode MS Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 6, 11, 8, 13, 10, 15],
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'visibility': 'none',
+        'minzoom': 6,
+        'maxzoom': 11
+      },
+      paint: {
+        'text-color': '#222',
+        'text-halo-color': 'rgba(255,255,255,0.95)',
+        'text-halo-width': 1.5
+      }
+    });
+  }
+} catch (e) {
+  console.warn('centroid labels failed:', e);
+}
+}
     // 先放一條「外圈」當描邊（深色，避免白線在亮底圖上看不清）
     if (!map.getLayer('county-casing')) {
       map.addLayer({
@@ -798,7 +815,7 @@
     const setVis = vis => {
       if (map.getLayer('county-casing'))  map.setLayoutProperty('county-casing',  'visibility', vis);
       if (map.getLayer('county-outline')) map.setLayoutProperty('county-outline', 'visibility', vis);
-          if (map.getLayer('county-label')) map.setLayoutProperty('county-label', 'visibility', vis);
+          if (map.getLayer('county-label-pts')) map.setLayoutProperty('county-label-pts', 'visibility', vis);
 };
     chk.addEventListener('change', ()=> setVis(chk.checked ? 'visible' : 'none'));
   }

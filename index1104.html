@@ -736,29 +736,6 @@
   async function addCountyBoundaries() {
     if (!map.getSource('tw-counties')) {
       map.addSource('tw-counties', { type: 'geojson', data: 'taiwan_county.geojson' });
-    // 加上縣市名稱標籤（symbol）
-    if (!map.getLayer('county-label')) {
-      map.addLayer({
-        id: 'county-label',
-        type: 'symbol',
-        source: 'tw-counties',
-        layout: {
-          // 盡量相容不同欄位名稱：COUNTYNAME / name / COUNTY
-          'text-field': ['coalesce', ['get','COUNTYNAME'], ['get','name'], ['get','COUNTY']],
-          'text-font': ['Noto Sans Regular', 'Arial Unicode MS Regular'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 6, 24, 10, 30, 13, 40],
-          'text-allow-overlap': false,
-          'text-ignore-placement': false,
-          'visibility': 'none'
-        },
-        paint: {
-          'text-color': '#222',
-          'text-halo-color': 'rgba(255,255,255,0.95)',
-          'text-halo-width': 1.5
-        }
-      });
-    }
-
     }
     // 先放一條「外圈」當描邊（深色，避免白線在亮底圖上看不清）
     if (!map.getLayer('county-casing')) {
@@ -798,8 +775,7 @@
     const setVis = vis => {
       if (map.getLayer('county-casing'))  map.setLayoutProperty('county-casing',  'visibility', vis);
       if (map.getLayer('county-outline')) map.setLayoutProperty('county-outline', 'visibility', vis);
-          if (map.getLayer('county-label')) map.setLayoutProperty('county-label', 'visibility', vis);
-};
+    };
     chk.addEventListener('change', ()=> setVis(chk.checked ? 'visible' : 'none'));
   }
 
