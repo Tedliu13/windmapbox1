@@ -160,6 +160,10 @@
   <div class="inline">
     <label><input id="chkCounty" type="checkbox"> 顯示縣市邊界</label>
   </div>
+  <div class="inline">
+  <label><input id="chkCityLabel" type="checkbox"> 顯示縣市名稱</label>
+  </div>
+
 
 
 </div>
@@ -347,6 +351,8 @@
     addAllWindLayers();
     await addTerrainOverlay();
     await addCountyBoundaries(); // ← 新增：載入縣市邊界（預設隱藏）
+    await addCityLabels();    // 生成以 CITY_PRESETS 座標為準的縣市名稱標籤
+    bindCityLabelToggle();    // 綁定設定面板的顯示開關
     bindTerrainUI();
     bindCountyToggle();          // ← 新增：綁定面板開關
     drawWindLegend();
@@ -674,7 +680,7 @@
     keelung:   { center: [121.7463, 25.1313], zoom: 12,  pitch: 45, bearing: 120 }, // 基隆市
     taoyuan:   { center: [121.2969, 24.9937], zoom: 11.4,  pitch: 45, bearing: 20 }, // 桃園市
     shintzu:   { center: [120.9647, 24.80395], zoom: 12,  pitch: 45, bearing: 20 }, // 新竹市
-    meowli:   { center: [120.81, 24.52], zoom: 11.4,  pitch: 45, bearing: 20 }, // 苗栗市
+    meowli:   { center: [120.8111, 24.5255], zoom: 11.4,  pitch: 45, bearing: 20 }, // 苗栗市
     taichung:  { center: [120.6790, 24.1477], zoom: 11.4,  pitch: 45, bearing: 20 }, // 台中市
     nantou:    { center: [120.6850, 23.9059], zoom: 11.4,  pitch: 45, bearing: 20 }, // 南投市
     changhua:  { center: [120.5410, 24.0805], zoom: 11.4,  pitch: 45, bearing: 20 }, // 彰化市
@@ -687,6 +693,37 @@
     hualien:   { center: [121.6068, 23.9770], zoom: 11.4,  pitch: 45, bearing: 20 }, // 花蓮市
     yilan:     { center: [121.7530, 24.7590], zoom: 11.4,  pitch: 45, bearing: 20 }  // 宜蘭市
   };
+
+  // 以「縣市視角」名稱與座標直接定義標籤（不讀任何 geojson）
+const LABEL_POINTS = [
+  { name:'台北市',   coord: CITY_PRESETS.taipei.center },
+  { name:'新北市',   coord: CITY_PRESETS.newtaipei.center },
+  { name:'基隆市',   coord: CITY_PRESETS.keelung.center },
+  { name:'桃園市',   coord: CITY_PRESETS.taoyuan.center },
+  { name:'新竹市',   coord: CITY_PRESETS.shintzu.center },
+  { name:'苗栗市',   coord: CITY_PRESETS.meowli.center },
+  { name:'台中市',   coord: CITY_PRESETS.taichung.center },
+  { name:'南投縣',   coord: CITY_PRESETS.nantou.center },
+  { name:'彰化縣',   coord: CITY_PRESETS.changhua.center },
+  { name:'雲林斗六', coord: CITY_PRESETS.yunlin.center },
+  { name:'嘉義市',   coord: CITY_PRESETS.chiayi.center },
+  { name:'台南市',   coord: CITY_PRESETS.tainan.center },
+  { name:'高雄市',   coord: CITY_PRESETS.kaohsiung.center },
+  { name:'屏東市',   coord: CITY_PRESETS.pingtung.center },
+  { name:'台東市',   coord: CITY_PRESETS.taitung.center },
+  { name:'花蓮市',   coord: CITY_PRESETS.hualien.center },
+  { name:'宜蘭市',   coord: CITY_PRESETS.yilan.center }
+];
+const LABEL_GEOJSON = {
+  type: 'FeatureCollection',
+  features: LABEL_POINTS.map(p => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: p.coord },
+    properties: { COUNTYNAME: p.name }
+  }))
+};
+
+
 
 
 
@@ -736,29 +773,6 @@
   async function addCountyBoundaries() {
     if (!map.getSource('tw-counties')) {
       map.addSource('tw-counties', { type: 'geojson', data: 'taiwan_county.geojson' });
-    // 加上縣市名稱標籤（symbol）
-    if (!map.getLayer('county-label')) {
-      map.addLayer({
-        id: 'county-label',
-        type: 'symbol',
-        source: 'tw-counties',
-        layout: {
-          // 盡量相容不同欄位名稱：COUNTYNAME / name / COUNTY
-          'text-field': ['coalesce', ['get','COUNTYNAME'], ['get','name'], ['get','COUNTY']],
-          'text-font': ['Noto Sans Regular', 'Arial Unicode MS Regular'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 6, 24, 10, 30, 13, 40],
-          'text-allow-overlap': false,
-          'text-ignore-placement': false,
-          'visibility': 'none'
-        },
-        paint: {
-          'text-color': '#222',
-          'text-halo-color': 'rgba(255,255,255,0.95)',
-          'text-halo-width': 1.5
-        }
-      });
-    }
-
     }
     // 先放一條「外圈」當描邊（深色，避免白線在亮底圖上看不清）
     if (!map.getLayer('county-casing')) {
@@ -798,9 +812,81 @@
     const setVis = vis => {
       if (map.getLayer('county-casing'))  map.setLayoutProperty('county-casing',  'visibility', vis);
       if (map.getLayer('county-outline')) map.setLayoutProperty('county-outline', 'visibility', vis);
-          if (map.getLayer('county-label')) map.setLayoutProperty('county-label', 'visibility', vis);
-};
+    };
     chk.addEventListener('change', ()=> setVis(chk.checked ? 'visible' : 'none'));
+  }
+
+  // === 顯示縣市名稱（座標直接沿用 CITY_PRESETS.center；文字大小固定 32） ===
+  function addCityLabels() {
+    // 依 CITY_PRESETS 組成點集合：座標=center；名稱=中文對照
+    const nameMap = {
+      taipei: "台北市",
+      newtaipei: "新北市",
+      keelung: "基隆市",
+      taoyuan: "桃園市",
+      shintzu: "新竹市",
+      meowli: "苗栗市",
+      taichung: "台中市",
+      nantou: "南投市",
+      changhua: "彰化市",
+      yunlin: "雲林斗六",
+      chiayi: "嘉義市",
+      tainan: "台南市",
+      kaohsiung: "高雄市",
+      pingtung: "屏東市",
+      taitung: "台東市",
+      hualien: "花蓮市",
+      yilan: "宜蘭市"
+    };
+
+    const features = Object.entries(CITY_PRESETS).map(([key, cfg]) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: cfg.center }, // ← 直接複製縣市視角座標
+      properties: { name: nameMap[key] ?? key }
+    }));
+
+    if (!map.getSource("city-labels")) {
+      map.addSource("city-labels", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features }
+      });
+    } else {
+      // 若重載 style，可更新資料
+      map.getSource("city-labels").setData({ type: "FeatureCollection", features });
+    }
+
+    if (!map.getLayer("city-labels")) {
+      map.addLayer({
+        id: "city-labels",
+        type: "symbol",
+        source: "city-labels",
+        layout: {
+          "text-field": ["get", "name"],
+          "text-size": ['interpolate', ['linear'], ['zoom'], 8, 22, 10, 28, 14, 44],                 
+          "text-font": ["Noto Sans Regular","Open Sans Regular","Arial Unicode MS Regular"],
+          "text-anchor": "center",
+          "text-offset": [0, 0],
+          "text-allow-overlap": true,
+          "text-ignore-placement": false,
+          "visibility": "none"             // 預設不顯示
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#000000",
+          "text-halo-width": 2
+        }
+      });
+    }
+  }
+
+  function bindCityLabelToggle() {
+    const chk = document.getElementById("chkCityLabel");
+    const setVis = (vis) => {
+      if (map.getLayer("city-labels")) {
+        map.setLayoutProperty("city-labels", "visibility", vis);
+      }
+    };
+    chk.addEventListener("change", () => setVis(chk.checked ? "visible" : "none"));
   }
 
 
