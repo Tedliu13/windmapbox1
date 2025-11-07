@@ -163,9 +163,6 @@
   <div class="inline">
   <label><input id="chkCityLabel" type="checkbox"> 顯示縣市名稱</label>
   </div>
-  <div class="inline">
-    <label><input id="chkArrows" type="checkbox"> 顯示風向箭頭(放大到某程度才會出現)</label>
-  </div>
 
 
 
@@ -324,26 +321,6 @@
     const t=document.querySelector('input[name="tod"]:checked').value;
     return `${s}_${t}`;
   }
-
-  // 全域風向箭頭開關（維持 minzoom:10，不改變你原本的設定）
-  function setAllDirVisibility(vis){
-    Object.keys(WINDDIR_FILES).forEach(k=>{
-      const id = 'dir_' + k;
-      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
-    });
-  }
-  function setDirVisibilityForKey(key, vis){
-    const id = 'dir_' + key;
-    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
-  }
-  function updateArrowsVisibility(){
-    const chk = document.getElementById('chkArrows');
-    const enable = !!(chk && chk.checked);
-    // 先全部關掉
-    setAllDirVisibility('none');
-    // 開啟目前情境（僅當有勾選）→ 因為圖層本身 minzoom:10，縮放<10時仍不會出現
-    if (enable) setDirVisibilityForKey(currentKey(), 'visible');
-  }
   function showOnly(key){
     // 粒子層
     Object.keys(TILESETS).forEach(k=>{
@@ -383,15 +360,7 @@
     await addWindDirLayers();  // ← 新增：載入風向箭頭層
     // 再呼叫一次 showOnly(currentKey())，確保初始只顯示當前情境
     showOnly(currentKey());
-  
-    // 綁定風向箭頭面板開關 + 初始化狀態
-    const chkAr = document.getElementById('chkArrows');
-    if (chkAr) {
-      chkAr.addEventListener('change', updateArrowsVisibility);
-      updateArrowsVisibility(); // 依勾選狀態（預設未勾選）決定是否顯示箭頭
-    }
-
-});
+  });
 
 
   
