@@ -142,9 +142,9 @@
   <div class="row">
     <label>色帶</label>
     <select id="pPalette">
-      <option value="teal" selected>多色階</option>
-      <option value="white">白色系</option>
+      <option value="white" selected>白色系</option>
       <option value="blue">藍色系</option>
+      <option value="teal">多色階</option>
       <option value="fire">橘色系</option>
     </select>
   </div>
@@ -233,17 +233,17 @@
 
   // === 自訂 TEAL 色帶（用最大風速的比例 0~1 標註停點） ===
   const TEAL_CUSTOM_FRAC_STOPS = [
-    [0.00, '#ffffff'], // 
-    [0.10, '#98ffff'], // 
-    [0.20, '#00ceff'], // 
-    [0.30, '#006af7'], // 
-    [0.40, '#fefe08'], // 
-    [0.50, '#ffcb00'], // 
-    [0.60, '#ff9c00'], // 
-    [0.70, '#fe0005'], // 
-    [0.80, '#c90200'], // 
-    [0.90, '#9d0000'], // 
-    [1.00, '#9a009d']  // 
+    [0.3, '#C46A14'], // 0級
+    [1.5, '#0FA3AD'], // 1級
+    [3.3, '#56B4E9'], // 2級
+    [5.4, '#FFB000'], // 3級
+    [7.9, '#AF5088']  // 4級
+    [10.7, '#AF5088']  // 5級
+    [13.8, '#AF5088']  // 6級
+    [17.1, '#AF5088']  // 7級
+    [20.7, '#AF5088']  // 8級
+    [24.4, '#AF5088']  // 9級
+    [28.4, '#000000'], // 10級
   ];
 
   // 依目前最大風速 pMax 轉成絕對值（m/s）
