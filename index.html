@@ -43,7 +43,8 @@
   }
 
   /* 右側地形 legend（預設隱藏）— 容器高度以視窗為基準 */
-  #terrainLegend.legend{
+  #terrainLegend.legend,
+  #aermodTerrainLegend.legend{
     position:absolute; right:12px; top:12px; z-index:12;
     background:rgba(255,255,255,.96); padding:6px; border-radius:10px;
     box-shadow:0 8px 20px rgba(0,0,0,.15);
@@ -53,7 +54,8 @@
   }
 
   /* 讓圖片吃容器高度，等比縮放；強制覆蓋任何 inline 寫死尺寸 */
-  #terrainLegend img{
+  #terrainLegend img,
+  #aermodTerrainLegend img{
     display:block;
     height:100% !important;   /* ← 關鍵：跟著容器高度走 */
     width:auto !important;    /* 等比縮放，不拉寬 */
@@ -63,12 +65,16 @@
 
   /* 平板/手機再縮小一點容器高度與外距 */
   @media (max-width: 768px){
-    #terrainLegend.legend{ right:8px; top:8px; height: clamp(100px, 28svh, 300px); }
-    #terrainLegend img{ max-width: min(60vw, 90svw); }
+    #terrainLegend.legend,
+    #aermodTerrainLegend.legend{ right:8px; top:8px; height: clamp(100px, 28svh, 300px); }
+    #terrainLegend img,
+    #aermodTerrainLegend img{ max-width: min(60vw, 90svw); }
   }
   @media (max-width: 420px){
-    #terrainLegend.legend{ height: clamp(90px, 24svh, 240px); }
-    #terrainLegend img{ max-width: min(70vw, 92svw); }
+    #terrainLegend.legend,
+    #aermodTerrainLegend.legend{ height: clamp(90px, 24svh, 240px); }
+    #terrainLegend img,
+    #aermodTerrainLegend img{ max-width: min(70vw, 92svw); }
   }
 
 
@@ -88,6 +94,11 @@
       background:#f3f4f6; color:#111; box-shadow:0 6px 16px rgba(0,0,0,.1);
     }
     .flybar select:focus{ outline:2px solid #2563eb; }
+    .mini-btn{
+      border:none; border-radius:10px; padding:8px 10px; background:#e5e7eb; color:#111; cursor:pointer;
+      box-shadow:0 4px 10px rgba(0,0,0,.08)
+    }
+    .mini-btn:hover{ background:#d1d5db; }
 
 
   </style>
@@ -157,6 +168,14 @@
       <input id="terrainOpacity" type="range" min="0" max="1" step="0.01" value="0.80">
       <output id="terrainOpacityV">0.80</output>
     </div>
+    <div class="inline">
+      <label><input id="chkAermodTerrain" type="checkbox"> 顯示AERMOD地形</label>
+    </div>
+    <div class="row">
+      <label>透明度</label>
+      <input id="aermodTerrainOpacity" type="range" min="0" max="1" step="0.01" value="0.80">
+      <output id="aermodTerrainOpacityV">0.80</output>
+    </div>
   <div class="inline">
     <label><input id="chkCounty" type="checkbox"> 顯示縣市邊界</label>
   </div>
@@ -165,6 +184,14 @@
   </div>
   <div class="inline">
     <label><input id="chkArrows" type="checkbox"> 顯示風向箭頭(放大到某程度才會出現)</label>
+  </div>
+  <div class="title" style="margin-top:6px">圖釘</div>
+  <div class="inline">
+    <label><input id="chkPinMode" type="checkbox"> 新增圖釘模式</label>
+  </div>
+  <div class="inline">
+    <button id="btnClearPins" type="button" class="mini-btn">清除全部圖釘</button>
+    <button id="btnExportPins" type="button" class="mini-btn">匯出 pins.json</button>
   </div>
 
 
@@ -200,6 +227,9 @@
 <div id="terrainLegend" class="legend" style="display:none;">
   <img src="terrain_legend.png" alt="Terrain legend">
 </div>
+<div id="aermodTerrainLegend" class="legend" style="display:none;">
+  <img src="AERMOD_terrain_legend.png" alt="AERMOD terrain legend">
+</div>
 <!-- 右側：風場色階 legend -->
 <div id="windLegend" class="wind-legend">
   <div class="hdr">
@@ -228,6 +258,14 @@
   };
   const SOURCE_LAYER = 'twinds';
   const BAND_NAME    = 'wind';
+  const PIN_SOURCE_ID = 'user-pins';
+  const PIN_POINT_LAYER_ID = 'user-pins-point';
+  const PIN_LABEL_LAYER_ID = 'user-pins-label';
+  const PIN_FILE_URL = 'pins.json';
+  const PIN_DATA = {
+    type: 'FeatureCollection',
+    features: []
+  };
 
 
 
@@ -377,10 +415,15 @@
     enableTerrainIfAny();
     addAllWindLayers();
     await addTerrainOverlay();
+    await addAermodTerrainOverlay();
     await addCountyBoundaries(); // ← 新增：載入縣市邊界（預設隱藏）
     await addCityLabels();    // 生成以 CITY_PRESETS 座標為準的縣市名稱標籤
+    addPinLayers();
+    await loadPins();
     bindCityLabelToggle();    // 綁定設定面板的顯示開關
     bindTerrainUI();
+    bindAermodTerrainUI();
+    bindPinUI();
     bindCountyToggle();          // ← 新增：綁定面板開關
     drawWindLegend();
     ensureArrowImage();      // 每次 style 載入都安全重建影像
@@ -920,8 +963,163 @@ const LABEL_GEOJSON = {
       if (map.getLayer("city-labels")) {
         map.setLayoutProperty("city-labels", "visibility", vis);
       }
+      updatePinLabelVisibility();
     };
     chk.addEventListener("change", () => setVis(chk.checked ? "visible" : "none"));
+    updatePinLabelVisibility();
+  }
+
+  function addPinLayers() {
+    if (!map.getSource(PIN_SOURCE_ID)) {
+      map.addSource(PIN_SOURCE_ID, {
+        type: 'geojson',
+        data: PIN_DATA
+      });
+    } else {
+      map.getSource(PIN_SOURCE_ID).setData(PIN_DATA);
+    }
+
+    if (!map.getLayer(PIN_POINT_LAYER_ID)) {
+      map.addLayer({
+        id: PIN_POINT_LAYER_ID,
+        type: 'circle',
+        source: PIN_SOURCE_ID,
+        layout: {
+          'visibility': 'none'
+        },
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 5, 12, 8],
+          'circle-color': '#ef4444',
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2
+        }
+      });
+    }
+
+    if (!map.getLayer(PIN_LABEL_LAYER_ID)) {
+      map.addLayer({
+        id: PIN_LABEL_LAYER_ID,
+        type: 'symbol',
+        source: PIN_SOURCE_ID,
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 18, 10, 22, 14, 36],
+          'text-font': ['Noto Sans Regular','Open Sans Regular','Arial Unicode MS Regular'],
+          'text-offset': [0, 1.2],
+          'text-anchor': 'top',
+          'text-allow-overlap': true,
+          'visibility': 'none'
+        },
+        paint: {
+          'text-color': '#111111',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 1.5
+        }
+      });
+    }
+  }
+
+  function refreshPins() {
+    const src = map.getSource(PIN_SOURCE_ID);
+    if (src) src.setData(PIN_DATA);
+  }
+
+  function updatePinLabelVisibility() {
+    const showLabels = $('chkCityLabel').checked || $('chkPinMode').checked;
+    if (map.getLayer(PIN_POINT_LAYER_ID)) {
+      map.setLayoutProperty(PIN_POINT_LAYER_ID, 'visibility', showLabels ? 'visible' : 'none');
+    }
+    if (!map.getLayer(PIN_LABEL_LAYER_ID)) return;
+    map.setLayoutProperty(PIN_LABEL_LAYER_ID, 'visibility', showLabels ? 'visible' : 'none');
+  }
+
+  async function loadPins() {
+    try {
+      const res = await fetch(PIN_FILE_URL, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      PIN_DATA.type = 'FeatureCollection';
+      PIN_DATA.features = Array.isArray(data?.features) ? data.features : [];
+      refreshPins();
+      say(`已載入 ${PIN_DATA.features.length} 個圖釘`);
+    } catch (err) {
+      PIN_DATA.type = 'FeatureCollection';
+      PIN_DATA.features = [];
+      refreshPins();
+      say('pins.json 尚未建立，已使用空白圖釘資料');
+    }
+  }
+
+  function exportPinsJson() {
+    const text = JSON.stringify(PIN_DATA, null, 2);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+    console.log(text);
+    window.prompt('請複製這份 pins.json 內容，貼回工作區的 pins.json 檔案', text);
+  }
+
+  function bindPinUI() {
+    if (bindPinUI._bound) return;
+    bindPinUI._bound = true;
+
+    const updatePinCursor = () => {
+      map.getCanvas().style.cursor = $('chkPinMode').checked ? 'crosshair' : '';
+    };
+
+    $('chkPinMode').addEventListener('change', () => {
+      updatePinCursor();
+      updatePinLabelVisibility();
+    });
+    updatePinCursor();
+    updatePinLabelVisibility();
+
+    $('btnClearPins').addEventListener('click', () => {
+      PIN_DATA.features = [];
+      refreshPins();
+    });
+    $('btnExportPins').addEventListener('click', exportPinsJson);
+
+    map.on('click', (e) => {
+      const hit = map.queryRenderedFeatures(e.point, { layers: [PIN_POINT_LAYER_ID] })[0];
+      if (hit) {
+        new mapboxgl.Popup({ offset: 12 })
+          .setLngLat(hit.geometry.coordinates)
+          .setHTML(`<div>${hit.properties?.name || '未命名圖釘'}</div>`)
+          .addTo(map);
+        return;
+      }
+
+      if (!$('chkPinMode').checked) return;
+
+      const name = window.prompt('請輸入圖釘名稱');
+      if (name === null) return;
+
+      const trimmed = name.trim();
+      PIN_DATA.features.push({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [e.lngLat.lng, e.lngLat.lat]
+        },
+        properties: {
+          name: trimmed || '未命名圖釘'
+        }
+      });
+      refreshPins();
+
+      new mapboxgl.Popup({ offset: 12 })
+        .setLngLat([e.lngLat.lng, e.lngLat.lat])
+        .setHTML(`<div>${trimmed || '未命名圖釘'}</div>`)
+        .addTo(map);
+    });
+
+    map.on('mouseenter', PIN_POINT_LAYER_ID, () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', PIN_POINT_LAYER_ID, () => {
+      updatePinCursor();
+    });
   }
 
 
@@ -953,6 +1151,31 @@ const LABEL_GEOJSON = {
     }
   }
 
+  async function addAermodTerrainOverlay() {
+    const b = await fetch('AERMOD_terrain_bounds.json').then(r => r.json());
+    const sw = ([lat, lon]) => [lon, lat];
+    const coords = [ sw(b.topleft), sw(b.topright), sw(b.bottomright), sw(b.bottomleft) ];
+
+    if (!map.getSource('aermod-terrain-img')) {
+      map.addSource('aermod-terrain-img', {
+        type: 'image',
+        url: 'AERMOD_terrain.png',
+        coordinates: coords
+      });
+    }
+
+    const beforeId = map.getLayer('wind_JJA_day') ? 'wind_JJA_day' : undefined;
+    if (!map.getLayer('aermod-terrain-layer')) {
+      map.addLayer({
+        id: 'aermod-terrain-layer',
+        type: 'raster',
+        source: 'aermod-terrain-img',
+        layout: { visibility: 'none' },
+        paint: { 'raster-opacity': parseFloat($('aermodTerrainOpacity').value) }
+      }, beforeId);
+    }
+  }
+
   // 開關/透明度控制
   function bindTerrainUI() {
     const chk = $('chkTerrain');
@@ -973,6 +1196,30 @@ const LABEL_GEOJSON = {
       const vis = chk.checked ? 'visible' : 'none';
       if (map.getLayer('terrain-layer')) {
         map.setLayoutProperty('terrain-layer', 'visibility', vis);
+      }
+      legend.style.display = chk.checked ? 'block' : 'none';
+    });
+  }
+
+  function bindAermodTerrainUI() {
+    const chk = $('chkAermodTerrain');
+    const op  = $('aermodTerrainOpacity');
+    const opV = $('aermodTerrainOpacityV');
+    const legend = $('aermodTerrainLegend');
+
+    const applyOpacity = () => {
+      opV.textContent = (+op.value).toFixed(2);
+      if (map.getLayer('aermod-terrain-layer')) {
+        map.setPaintProperty('aermod-terrain-layer', 'raster-opacity', +op.value);
+      }
+    };
+    op.addEventListener('input', applyOpacity);
+    applyOpacity();
+
+    chk.addEventListener('change', () => {
+      const vis = chk.checked ? 'visible' : 'none';
+      if (map.getLayer('aermod-terrain-layer')) {
+        map.setLayoutProperty('aermod-terrain-layer', 'visibility', vis);
       }
       legend.style.display = chk.checked ? 'block' : 'none';
     });
