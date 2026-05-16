@@ -1,18 +1,4 @@
 {
   "type": "FeatureCollection",
-  "features": [
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          120.69289272075167,
-          23.809969952868585
-        ]
-      },
-      "properties": {
-        "name": "民間鄉焚化爐預定地"
-      }
-    }
-  ]
+  "features": []
 }
